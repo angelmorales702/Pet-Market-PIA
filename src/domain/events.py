@@ -2,6 +2,8 @@
 
 Los Domain Events permiten desacoplar los efectos secundarios (notificaciones,
 actualización de stocks) de los cambios de estado de los agregados.
+
+Alineados con docs/fuentes/Diagramas_DDD.md
 """
 from __future__ import annotations
 
@@ -23,6 +25,43 @@ class PedidoCreadoEvent(DomainEvent):
 
 
 @dataclass(frozen=True)
+class PedidoCanceladoEvent(DomainEvent):
+    """Se emite cuando el pedido es cancelado."""
+    pedido_id: UUID
+
+
+@dataclass(frozen=True)
+class PedidoEmpacadoEvent(DomainEvent):
+    """Se emite cuando todos los surtidos del pedido están EMPACADO."""
+    pedido_id: UUID
+
+
+@dataclass(frozen=True)
+class StockReservadoEvent(DomainEvent):
+    """Se emite cuando se reserva inventario en un almacén para un pedido.
+
+    US-001, US-002
+    """
+    pedido_id: UUID
+    almacen_id: UUID
+    sku: str
+    cantidad: int
+
+
+@dataclass(frozen=True)
+class StockInsuficienteEvent(DomainEvent):
+    """Se emite cuando no hay stock suficiente en el almacén para reservar.
+
+    US-005
+    """
+    pedido_id: UUID
+    almacen_id: UUID
+    sku: str
+    solicitado: int
+    disponible: int
+
+
+@dataclass(frozen=True)
 class PagoAprobadoEvent(DomainEvent):
     """Se emite cuando un pago es aprobado y el pedido avanza a PAGADO."""
     pedido_id: UUID
@@ -40,16 +79,40 @@ class PagoRechazadoEvent(DomainEvent):
 
 
 @dataclass(frozen=True)
-class SurtidoEmpacadoEvent(DomainEvent):
-    """Se emite cuando un surtido específico es marcado como EMPACADO."""
+class PedidoEntregadoEvent(DomainEvent):
+    """Se emite cuando la entrega es confirmada exitosamente."""
     pedido_id: UUID
-    surtido_id: UUID
 
 
 @dataclass(frozen=True)
-class PedidoEmpacadoEvent(DomainEvent):
-    """Se emite cuando todos los surtidos del pedido están EMPACADO."""
+class EntregaFallidaEvent(DomainEvent):
+    """Se emite cuando se agotan los intentos de entrega y el paquete regresa al almacén.
+
+    US-011
+    """
     pedido_id: UUID
+    intentos_realizados: int
+
+
+@dataclass(frozen=True)
+class DevolucionSolicitadaEvent(DomainEvent):
+    """Se emite cuando se solicita una devolución para un pedido entregado.
+
+    US-013
+    """
+    pedido_id: UUID
+    devolucion_id: UUID
+    motivo: str
+
+
+@dataclass(frozen=True)
+class DevolucionAprobadaEvent(DomainEvent):
+    """Se emite cuando Atención al cliente autoriza la devolución.
+
+    US-014
+    """
+    pedido_id: UUID
+    devolucion_id: UUID
 
 
 @dataclass(frozen=True)
@@ -64,24 +127,4 @@ class IntentoEntregaRegistradoEvent(DomainEvent):
     """Se emite cuando se registra un intento de entrega."""
     pedido_id: UUID
     exitoso: bool
-    numero_intentos: int
-
-
-@dataclass(frozen=True)
-class PedidoEntregadoEvent(DomainEvent):
-    """Se emite cuando la entrega es confirmada exitosamente."""
-    pedido_id: UUID
-
-
-@dataclass(frozen=True)
-class PedidoCanceladoEvent(DomainEvent):
-    """Se emite cuando el pedido es cancelado."""
-    pedido_id: UUID
-
-
-@dataclass(frozen=True)
-class DevolucionSolicitadaEvent(DomainEvent):
-    """Se emite cuando se solicita una devolución para un pedido entregado."""
-    pedido_id: UUID
-    devolucion_id: UUID
-    motivo: str
+    numero_intento: int

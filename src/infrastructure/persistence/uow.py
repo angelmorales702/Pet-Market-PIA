@@ -48,14 +48,25 @@ class SqlAlchemyUnitOfWork(UnitOfWork):
         self,
         session_factory: sessionmaker,
         event_publisher: PublicadorEventos,
+        existing_session: Optional[Session] = None,
     ):
         self._session_factory = session_factory
         self._session: Optional[Session] = None
         self._event_publisher = event_publisher
         self._committed = False
+        self._existing_session = existing_session
+        self._own_session = existing_session is None
+
+    @property
+    def _publisher(self) -> PublicadorEventos:
+        """Propiedad compatibilidad - alias a _event_publisher."""
+        return self._event_publisher
 
     def __enter__(self) -> "SqlAlchemyUnitOfWork":
-        self._session = self._session_factory()
+        if self._existing_session:
+            self._session = self._existing_session
+        else:
+            self._session = self._session_factory()
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
@@ -64,7 +75,7 @@ class SqlAlchemyUnitOfWork(UnitOfWork):
         elif not self._committed:
             # Si no hubo commit explícito y no hubo error, hacer rollback por seguridad
             self.rollback()
-        if self._session:
+        if self._session and self._own_session:
             self._session.close()
             self._session = None
 

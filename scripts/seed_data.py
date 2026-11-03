@@ -75,7 +75,10 @@ def seed_data():
                 precio=Dinero(precio, "MXN"),
                 categoria=categoria,
             )
-            session.add(producto)
+            # Usar el repositorio para guardar
+            from src.infrastructure.persistence.repositories import SqlAlchemyRepositorioProducto
+            repo_producto = SqlAlchemyRepositorioProducto(session)
+            repo_producto.guardar(producto)
             session.commit()
             print(f"✓ Producto creado: {nombre} ({sku})")
 
@@ -99,15 +102,18 @@ def seed_data():
 
         for sku, cantidad, almacen_nombre in existencias:
             # Buscar almacén y producto
-            almacen = session.query(Almacen).filter_by(nombre=almacen_nombre).first()
-            if not almacen:
+            from sqlalchemy import select
+            from src.infrastructure.persistence.models import AlmacenModel
+            almacen_query = select(AlmacenModel).where(AlmacenModel.nombre == almacen_nombre)
+            almacen_model = session.execute(almacen_query).scalar_one_or_none()
+            if not almacen_model:
                 continue
 
             # Crear existencia
             from src.domain.entities import ExistenciaProducto
             existencia = ExistenciaProducto(
                 producto_id=uuid4(),  # Placeholder - debería ser el ID real del producto
-                almacen_id=almacen.id,
+                almacen_id=almacen_model.id,
                 sku=Sku.of(sku),
                 cantidad_disponible=cantidad,
             )

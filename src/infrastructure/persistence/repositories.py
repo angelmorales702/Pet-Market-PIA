@@ -450,10 +450,31 @@ class SqlAlchemyRepositorioAlmacen(RepositorioAlmacen):
     def guardar(self, almacen: Almacen) -> None:
         model = _map_almacen_from_domain(almacen)
         self._session.merge(model)
-        # Guardar existencias
+        # Guardar existencias - buscar por (almacen_id, sku) y actualizar o crear
+        from sqlalchemy import select, or_
         for ex in almacen.existencias.values():
-            ex_model = _map_existencia_from_domain(ex)
-            self._session.merge(ex_model)
+            stmt = select(ExistenciaModel).where(
+                ExistenciaModel.almacen_id == almacen.id,
+                ExistenciaModel.sku == str(ex.sku)
+            )
+            ex_model = self._session.execute(stmt).scalar_one_or_none()
+            if ex_model:
+                # Actualizar los campos
+                ex_model.producto_id = ex.producto_id
+                ex_model.cantidad_disponible = ex.cantidad_disponible
+                ex_model.cantidad_reservada = ex.cantidad_reservada
+            else:
+                # Crear nueva existencia
+                from uuid import uuid4
+                new_ex = ExistenciaModel(
+                    id=uuid4(),
+                    almacen_id=almacen.id,
+                    producto_id=ex.producto_id,
+                    sku=str(ex.sku),
+                    cantidad_disponible=ex.cantidad_disponible,
+                    cantidad_reservada=ex.cantidad_reservada,
+                )
+                self._session.add(new_ex)
 
     def obtener_por_id(self, almacen_id: UUID) -> Optional[Almacen]:
         stmt = select(AlmacenModel).where(AlmacenModel.id == almacen_id).options(selectinload(AlmacenModel.existencias))

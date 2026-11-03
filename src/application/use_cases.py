@@ -401,10 +401,21 @@ class ConsultarEstadoPedidoUseCase:
             envio = uow.envios.obtener_por_pedido(pedido_id)
             pago = uow.pagos.obtener_por_pedido(pedido_id)
             return {
-                "pedido_id": pedido.id,
+                "pedido_id": str(pedido.id),
                 "estado": pedido.estado.value,
-                "total": pedido.total,
-                "surtidos": len(pedido.surtidos),
+                "total": {
+                    "monto": str(pedido.total.monto),
+                    "moneda": pedido.total.moneda,
+                },
+                "surtidos": [
+                    {
+                        "surtido_id": str(s.id),
+                        "almacen_id": str(s.almacen_id),
+                        "estado": s.estado.value,
+                        "lineas": [{"sku": str(l.sku), "cantidad": l.cantidad} for l in s.lineas],
+                    }
+                    for s in pedido.surtidos
+                ],
                 "envio_estado": envio.estado.value if envio else "SIN_ENVIO",
                 "pago_estado": pago.estado.value if pago else "SIN_PAGO",
             }

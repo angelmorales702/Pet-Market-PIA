@@ -54,8 +54,12 @@ from src.application.in_memory import InMemoryEventPublisher
 
 # Database configuration
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://petmarket_user:petmarket_pass@localhost:5432/petmarket_db")
+TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL")
 
-engine = create_engine(DATABASE_URL)
+# Usar TEST_DATABASE_URL si está disponible (modo test)
+_DB_URL = TEST_DATABASE_URL or DATABASE_URL
+
+engine = create_engine(_DB_URL)
 SessionLocal = sessionmaker(bind=engine)
 
 
@@ -71,7 +75,15 @@ def get_session():
 def get_uow(session=Depends(get_session)):
     """Dependency that provides a Unit of Work."""
     publisher = InMemoryEventPublisher()
-    uow = SqlAlchemyUnitOfWork(SessionLocal(), publisher)
+    # El session viene por dependencia - si es una session válida, usarla directamente
+    # Esto permite que los tests con override funcionen correctamente
+    from sqlalchemy.orm import Session
+    if isinstance(session, Session):
+        # Session ya existe (en tests con override), usarla directamente
+        uow = SqlAlchemyUnitOfWork(sessionmaker(bind=session.bind), publisher, existing_session=session)
+    else:
+        # UoW normal con session factory
+        uow = SqlAlchemyUnitOfWork(SessionLocal, publisher)
     return uow
 
 
@@ -107,7 +119,7 @@ def translate_error_response(exc: Exception) -> JSONResponse:
     if isinstance(exc, TransicionEstadoInvalidaException):
         return JSONResponse(
             status_code=status.HTTP_409_CONFLICT,
-            content={"codigo": "ESTADO_INVALIDO", "mensaje": f"Transición de estado inválida: {exc.estado_actual} → {exc.estado_esperado}"},
+            content={"codigo": "ESTADO_INVALIDO", "mensaje": f"Transición de estado inválida: {exc.estado_actual} → {exc.estado_destino}"},
         )
     elif isinstance(exc, CancelacionNoPermitidaError):
         return JSONResponse(
@@ -124,12 +136,23 @@ def translate_error_response(exc: Exception) -> JSONResponse:
             status_code=status.HTTP_409_CONFLICT,
             content={"codigo": "STOCK_INSUFICIENTE", "mensaje": str(exc)},
         )
+    elif isinstance(exc, (KeyError, ValueError)) and ("SKU" in str(exc) or "sku" in str(exc) or "SKU_INVALIDO" in str(exc)):
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content={"codigo": "SKU_INVALIDO", "mensaje": str(exc)},
+        )
     elif isinstance(exc, ValueError):
         return JSONResponse(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             content={"codigo": "DATOS_INVALIDOS", "mensaje": str(exc)},
         )
+    elif isinstance(exc, FileNotFoundError):
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={"codigo": "NO_ENCONTRADO", "mensaje": str(exc)},
+        )
     else:
+        # Nunca devolver 500 en producción: mapear a 500 solo para excepciones inesperadas
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={"codigo": "ERROR_INTERNO", "mensaje": str(exc)},
@@ -449,7 +472,13 @@ async def obtener_producto(
         try:
             producto = uow.productos.obtener_por_sku(Sku.of(sku))
         except ValueError as e:
-            raise e
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={
+                    "codigo": "SKU_INVALIDO",
+                    "mensaje": f"Formato de SKU inválido: {sku}. El formato debe ser SKU-XXXXX (5 dígitos)"
+                }
+            )
         if not producto:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,

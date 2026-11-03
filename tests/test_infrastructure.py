@@ -3,6 +3,9 @@
 Estos tests verifican que los modelos de persistencia se mapean correctamente
 y que los repositorios implementan los puertos de la aplicación.
 Requieren una base de datos PostgreSQL real (docker compose up db).
+
+Se ejecutan solo si la variable de entorno TEST_DATABASE_URL está configurada
+y la base de datos es accesible.
 """
 from __future__ import annotations
 
@@ -36,6 +39,24 @@ from src.infrastructure.persistence.uow import SqlAlchemyUnitOfWork, create_sess
 TEST_DATABASE_URL = os.getenv(
     "TEST_DATABASE_URL",
     "postgresql://petmarket_user:petmarket_pass@localhost:5432/petmarket_db"
+)
+
+
+def _db_available() -> bool:
+    """Verifica si la base de datos está disponible."""
+    try:
+        engine = create_engine(TEST_DATABASE_URL)
+        with engine.connect() as conn:
+            conn.execute("SELECT 1")
+        return True
+    except Exception:
+        return False
+
+
+# Skip todos los tests de infraestructura si no hay DB disponible
+pytestmark = pytest.mark.skipif(
+    not _db_available(),
+    reason="Base de datos PostgreSQL no disponible (configurar TEST_DATABASE_URL y ejecutar docker compose up db)"
 )
 
 

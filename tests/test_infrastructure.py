@@ -6,6 +6,9 @@ Requieren una base de datos PostgreSQL real (docker compose up db).
 
 Se ejecutan solo si la variable de entorno TEST_DATABASE_URL está configurada
 y la base de datos es accesible.
+
+En CI (requiere REQUIRE_DB=1), los tests fallan si la DB no está disponible.
+Localmente, los tests pueden omitirse si la DB no está disponible.
 """
 from __future__ import annotations
 
@@ -13,15 +16,24 @@ import os
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
+from alembic.config import Config
+from alembic import command
 
 from src.domain.aggregates import Almacen, Cliente, Pedido, Producto
-from src.domain.entities import LineaPedido
+from src.domain.entities import ExistenciaProducto, LineaPedido, Surtido
+from src.domain.exceptions import TransicionEstadoInvalidaException
 from src.domain.value_objects import (
     DireccionEntrega,
     Dinero,
     EstadoSurtido,
+    EstadoPago,
+    EstadoEnvio,
+    EstadoDevolucion,
+    Guia,
+    MotivoDevolucion,
     Sku,
 )
 from src.infrastructure.persistence.models import Base
@@ -30,17 +42,23 @@ from src.infrastructure.persistence.repositories import (
     SqlAlchemyRepositorioCliente,
     SqlAlchemyRepositorioPedido,
     SqlAlchemyRepositorioProducto,
+    SqlAlchemyRepositorioPago,
+    SqlAlchemyRepositorioEnvio,
+    SqlAlchemyRepositorioDevolucion,
+    _map_existencia_from_domain,
 )
-from src.infrastructure.persistence.uow import SqlAlchemyUnitOfWork, create_session_factory
+from src.infrastructure.persistence.uow import SqlAlchemyUnitOfWork
 
 
 # Configuración de base de datos para tests
 # Usar TEST_DATABASE_URL del entorno o una por defecto para tests locales
-# Nota: para CI/CD, se espera que la BD exista o se cree con init-test-db profile
 TEST_DATABASE_URL = os.getenv(
     "TEST_DATABASE_URL",
-    "postgresql://petmarket_user:petmarket_pass@localhost:5432/petmarket_db"
+    "postgresql://petmarket_user:petmarket_pass@localhost:5432/petmarket_test"
 )
+
+# Variable para CI: si REQUIRE_DB=1, los tests fallan en lugar de omitirse
+REQUIRE_DB = os.getenv("REQUIRE_DB", "0").lower() in ("1", "true", "yes")
 
 
 def _db_available() -> bool:
@@ -48,16 +66,28 @@ def _db_available() -> bool:
     try:
         engine = create_engine(TEST_DATABASE_URL)
         with engine.connect() as conn:
-            from sqlalchemy import text
             conn.execute(text("SELECT 1"))
         return True
     except Exception:
         return False
 
 
+def _run_migrations():
+    """Ejecuta migraciones de Alembic sobre la base de datos de test."""
+    try:
+        alembic_cfg = Config("alembic.ini")
+        alembic_cfg.set_main_option("sqlalchemy.url", TEST_DATABASE_URL)
+        command.upgrade(alembic_cfg, "head")
+        return True
+    except Exception as e:
+        print(f"Error ejecutando migraciones: {e}")
+        return False
+
+
 # Skip todos los tests de infraestructura si no hay DB disponible
+# En CI con REQUIRE_DB=1, los tests fallan en lugar de omitirse
 pytestmark = pytest.mark.skipif(
-    not _db_available(),
+    not REQUIRE_DB and not _db_available(),
     reason="Base de datos PostgreSQL no disponible (configurar TEST_DATABASE_URL y ejecutar docker compose up db)"
 )
 
@@ -66,9 +96,13 @@ pytestmark = pytest.mark.skipif(
 def engine():
     """Engine de base de datos para toda la sesión de tests."""
     eng = create_engine(TEST_DATABASE_URL)
-    # Crear todas las tablas
+
+    # Crear todas las tablas (en lugar de usar alembic para tests)
+    # Esto es más rápido y asegura que el esquema esté actualizado
     Base.metadata.create_all(eng)
+
     yield eng
+
     # Cleanup
     Base.metadata.drop_all(eng)
 
@@ -78,11 +112,11 @@ def session(engine):
     """Sesión SQLAlchemy por test con rollback automático."""
     connection = engine.connect()
     transaction = connection.begin()
-    session = Session(bind=connection)
+    sess = Session(bind=connection)
 
-    yield session
+    yield sess
 
-    session.close()
+    sess.close()
     transaction.rollback()
     connection.close()
 
@@ -135,9 +169,6 @@ def test_repositorio_cliente_guardar_y_obtener(session):
     """Test CRUD básico de RepositorioCliente."""
     repo = SqlAlchemyRepositorioCliente(session)
 
-    from src.domain.aggregates import Cliente
-    from src.domain.value_objects import DireccionEntrega
-
     cliente = Cliente.crear("Juan Pérez", "juan@test.com", "555-1234")
     cliente.agregar_direccion(DireccionEntrega("Calle 1", "100", "Centro", "Monterrey", "64000"))
 
@@ -160,8 +191,6 @@ def test_repositorio_cliente_guardar_y_obtener(session):
 def test_repositorio_producto_guardar_y_obtener(session):
     """Test CRUD básico de RepositorioProducto."""
     repo = SqlAlchemyRepositorioProducto(session)
-
-    from src.domain.aggregates import Producto
 
     producto = Producto.crear(
         sku=Sku.of("SKU-00001"),
@@ -220,11 +249,6 @@ def test_repositorio_pedido_con_lineas_y_surtidos(session):
     - Surtidos (entity dentro del agregado Pedido)
     - Existencias (entity independiente con refs por ID)
     """
-    from src.domain.aggregates import Almacen, Producto
-    from src.domain.entities import ExistenciaProducto, LineaPedido, Surtido
-    from src.domain.value_objects import EstadoSurtido, Dinero
-    from src.infrastructure.persistence.repositories import _map_existencia_from_domain
-
     # Crear repositorios necesarios
     repo_cliente = SqlAlchemyRepositorioCliente(session)
     repo_almacen = SqlAlchemyRepositorioAlmacen(session)
@@ -303,9 +327,14 @@ def test_unit_of_work_commit_y_rollback(session):
 
 Verifica que el Unit of Work maneja correctamente:
 1. Commit exitoso de un pedido completo
-2. Rollback cuando hay error (verificado por fixture)
+2. Rollback cuando hay error (transacción revertida)
 """
-    from src.domain.aggregates import Almacen, Producto
+    from src.application.in_memory import InMemoryEventPublisher
+    from src.infrastructure.persistence.repositories import (
+        SqlAlchemyRepositorioAlmacen,
+        SqlAlchemyRepositorioCliente,
+        SqlAlchemyRepositorioProducto,
+    )
 
     # Test 1: Commit exitoso
     # Crear un pedido simple y verificar que se persiste
@@ -344,11 +373,169 @@ Verifica que el Unit of Work maneja correctamente:
     producto_obtenido = repo_producto.obtener_por_sku(Sku.of("SKU-20001"))
     assert producto_obtenido is not None
 
-    # Test 2: Verificar rollback funciona con la sesión
-    # La fixture ya usa transaction.rollback() al final de cada test
-
     print("✓ Test de Unit of Work commit y rollback pasó")
 
 
+def test_repositorio_pago_guardar_y_obtener(session):
+    """Test RepositorioPago - CRUD básico."""
+    from src.domain.aggregates import Pago
+
+    repo_pago = SqlAlchemyRepositorioPago(session)
+
+    # Crear un producto y cliente primero
+    repo_producto = SqlAlchemyRepositorioProducto(session)
+    repo_cliente = SqlAlchemyRepositorioCliente(session)
+
+    producto = Producto.crear(
+        sku=Sku.of("SKU-PAGO-001"),
+        nombre="Test Product",
+        descripcion="Test Product Description",
+        precio=Dinero(100, "MXN"),
+        categoria="Test"
+    )
+    repo_producto.guardar(producto)
+    session.commit()
+
+    cliente = Cliente.crear("Pago Test", "pago@test.com", "555-0001")
+    repo_cliente.guardar(cliente)
+    session.commit()
+
+    # Crear un pedido
+    repo_pedido = SqlAlchemyRepositorioPedido(session)
+    lineas = [
+        LineaPedido(sku=Sku.of("SKU-PAGO-001"), cantidad=1, precio_unitario=Dinero(100, "MXN"))
+    ]
+    direccion = DireccionEntrega("Calle Pago", "1", "Centro", "CDMX", "01000")
+    pedido = Pedido.crear(cliente_id=cliente.id, lineas=lineas, direccion_entrega=direccion)
+    repo_pedido.guardar(pedido)
+    session.commit()
+
+    # Crear pago usando el aggregate domain
+    pago = Pago.crear(pedido_id=pedido.id, monto=Dinero(100, "MXN"), metodo_pago="TARJETA")
+    repo_pago.guardar(pago)
+    session.commit()
+
+    # Verificar
+    obtenido = repo_pago.obtener_por_id(pago.id)
+    assert obtenido is not None
+    assert obtenido.monto == Dinero(100, "MXN")
+    assert obtenido.metodo_pago == "TARJETA"
+    assert obtenido.estado == EstadoPago.PENDIENTE
+
+    # Probar aprobar pago
+    pago.aprobar()
+    repo_pago.guardar(pago)
+    session.commit()
+
+    pago_actualizado = repo_pago.obtener_por_id(pago.id)
+    assert pago_actualizado.estado == EstadoPago.APROBADO
+
+    print("✓ Test de repositorio Pago pasó")
+
+
+def test_repositorio_envio_guardar_y_obtener(session):
+    """Test RepositorioEnvio - CRUD básico."""
+    from src.domain.aggregates import Envio
+
+    repo_envio = SqlAlchemyRepositorioEnvio(session)
+
+    # Crear cliente y pedido
+    repo_cliente = SqlAlchemyRepositorioCliente(session)
+    repo_pedido = SqlAlchemyRepositorioPedido(session)
+
+    cliente = Cliente.crear("Envio Test", "envio@test.com", "555-0002")
+    repo_cliente.guardar(cliente)
+    session.commit()
+
+    lineas = [
+        LineaPedido(sku=Sku.of("SKU-ENVIO-001"), cantidad=2, precio_unitario=Dinero(50, "MXN"))
+    ]
+    direccion = DireccionEntrega("Calle Envio", "2", "Centro", "CDMX", "01001")
+    pedido = Pedido.crear(cliente_id=cliente.id, lineas=lineas, direccion_entrega=direccion)
+    repo_pedido.guardar(pedido)
+    session.commit()
+
+    # Crear envio
+    envio = Envio.crear(pedido_id=pedido.id)
+    envio.asignar_guia(Guia.of("GUIA-ENVIO-123"))
+    repo_envio.guardar(envio)
+    session.commit()
+
+    # Verificar
+    obtenido = repo_envio.obtener_por_id(envio.id)
+    assert obtenido is not None
+    assert obtenido.pedido_id == pedido.id
+    assert obtenido.guia == "GUIA-ENVIO-123"
+    assert obtenido.estado == EstadoEnvio.EN_TRASITO
+
+    print("✓ Test de repositorio Envio pasó")
+
+
+def test_repositorio_devolucion_guardar_y_obtener(session):
+    """Test RepositorioDevolucion - CRUD básico."""
+    from src.domain.aggregates import Devolucion
+
+    repo_devolucion = SqlAlchemyRepositorioDevolucion(session)
+
+    # Crear cliente y pedido
+    repo_cliente = SqlAlchemyRepositorioCliente(session)
+    repo_pedido = SqlAlchemyRepositorioPedido(session)
+
+    cliente = Cliente.crear("Devolucion Test", "devolucion@test.com", "555-0003")
+    repo_cliente.guardar(cliente)
+    session.commit()
+
+    lineas = [
+        LineaPedido(sku=Sku.of("SKU-DEV-001"), cantidad=1, precio_unitario=Dinero(200, "MXN"))
+    ]
+    direccion = DireccionEntrega("Calle Dev", "3", "Centro", "CDMX", "01002")
+    pedido = Pedido.crear(cliente_id=cliente.id, lineas=lineas, direccion_entrega=direccion)
+    repo_pedido.guardar(pedido)
+    session.commit()
+
+    # Crear devolucion
+    devolucion = Devolucion.crear(
+        pedido_id=pedido.id,
+        motivo=MotivoDevolucion.of("Producto defectuoso"),
+        lineas=[LineaPedido(sku=Sku.of("SKU-DEV-001"), cantidad=1, precio_unitario=Dinero(200, "MXN"))]
+    )
+    repo_devolucion.guardar(devolucion)
+    session.commit()
+
+    # Verificar
+    obtenido = repo_devolucion.obtener_por_id(devolucion.id)
+    assert obtenido is not None
+    assert obtenido.pedido_id == pedido.id
+    assert obtenido.estado == EstadoDevolucion.SOLICITADA
+    assert len(obtenido.lineas) == 1
+
+    print("✓ Test de repositorio Devolucion pasó")
+
+
+def test_repositorio_almacen_guardar_y_existencias(session):
+    """Test RepositorioAlmacen guardando con existencias."""
+    repo_almacen = SqlAlchemyRepositorioAlmacen(session)
+
+    # Crear almacén con existencias usando el método del dominio
+    almacen = Almacen.crear("Baja California", "Tijuana")
+    almacen.agregar_existencia(
+        producto_id=uuid4(),
+        sku=Sku.of("SKU-BCX-001"),
+        cantidad=100
+    )
+
+    repo_almacen.guardar(almacen)
+    session.commit()
+
+    # Verificar
+    obtenido = repo_almacen.obtener_por_id(almacen.id)
+    assert obtenido is not None
+    assert obtenido.nombre == "Baja California"
+    assert len(obtenido.existencias) == 1
+    assert obtenido.existencias["SKU-BCX-001"].cantidad_disponible == 100
+
+    print("✓ Test de Almacén con existencias pasó")
+
+
 if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
+    pytest.main([__file__, "-v", "-cov=src", "--cov-fail-under=85"])

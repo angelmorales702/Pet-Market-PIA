@@ -146,6 +146,10 @@ class Guia:
         if not self.valor.strip():
             raise ValueError("La guía no puede ser vacía")
 
+    @classmethod
+    def of(cls, value: str) -> "Guia":
+        return cls(value)
+
 
 @dataclass(frozen=True)
 class MotivoDevolucion:
@@ -157,6 +161,10 @@ class MotivoDevolucion:
             raise ValueError("El motivo no puede ser vacío")
         if not self.valor.strip():
             raise ValueError("El motivo no puede ser vacío")
+
+    @classmethod
+    def of(cls, value: str) -> "MotivoDevolucion":
+        return cls(value)
 
 
 def new_id() -> UUID:

@@ -26,6 +26,13 @@ Esta matriz garantiza la trazabilidad bidireccional completa entre las necesidad
 | **N4** | **US-014** | Almacén confirma recepción del producto devuelto | `Devolucion.confirmar_recepcion_almacen()`<br>Estado `PROCESADA` | `test_devolucion_flujo_autorizacion_recepcion_reembolso` (test_domain_devolucion.py) |
 | **N4** | **US-015** | Reembolso procesado tras confirmación de Almacén | `Devolucion.marcar_reembolsado()`<br>`Pago.reembolsar()` | `test_devolucion_flujo_autorizacion_recepcion_reembolso` (test_domain_devolucion.py) |
 | **N1** | **US-016** | Generación del indicador de discrepancia | `Almacen.detectar_discrepancia()`<br>`DiscrepanciaInventarioDetectadaEvent`<br>`DiscrepanciaInventarioSpec` | `test_almacen_detectar_discrepancia` (test_domain_discrepancia.py)<br>`test_discrepancia_inventario_spec_detecta_diferencia` (test_domain_services.py) |
+| **N5** | **US-001** | Confirmar checkout: reserva stock y crea PENDIENTE_PAGO | `ConfirmarCheckoutUseCase.ejecutar()`<br>`AsignacionAlmacenService.asignar()` | `test_confirmar_checkout_use_case` (test_application.py) |
+| **N5** | **US-003, US-004** | Procesar pago con reintentos (máx 3) | `ProcesarPagoUseCase.ejecutar()`<br>`PasarelaPago` | `test_procesar_pago_aprobado_use_case`<br>`test_procesar_pago_rechazado_tres_veces_use_case` (test_application.py) |
+| **N3** | **US-008, US-009** | Cancelar pedido (temprana / tardía con autorización) | `CancelarPedidoUseCase.ejecutar()`<br>`Pedido.puede_cancelar_cliente()` | `test_cancelar_pedido_antes_de_preparacion` (test_application.py) |
+| **N7** | **US-007** | Iniciar preparación y empacar surtido | `IniciarYEmpacarSurtidoUseCase` | `test_iniciar_y_empacar_surtido_use_case` (test_application.py) |
+| **N7** | **US-006, US-010** | Despachar pedido y registrar entrega | `DespacharPedidoUseCase` / `RegistrarEntregaUseCase` | `test_despachar_y_registrar_entrega_use_case` (test_application.py) |
+| **N4** | **US-013, US-014, US-015** | Flujo completo devolución y reembolso | `SolicitarDevolucionUseCase`<br>`AutorizarDevolucionUseCase`<br>`ProcesarReembolsoUseCase` | `test_solicitud_y_flujo_devolucion_use_case` (test_application.py) |
+| **N1** | **US-016** | Consultar estado y detectar discrepancia | `ConsultarEstadoPedidoUseCase`<br>`ConsultarDiscrepanciaInventarioUseCase` | `test_consultar_estado_y_discrepancia` (test_application.py) |
 
 ---
 
@@ -46,8 +53,8 @@ Esta matriz garantiza la trazabilidad bidireccional completa entre las necesidad
 
 ## Cobertura de Tests Actual
 
-- **Tests unitarios totales:** 42
-- **Cobertura global:** 80.70% (cumple gate de CI ≥80%)
+- **Tests unitarios totales:** 50 (42 dominio + 8 aplicación)
+- **Cobertura global:** 83.78% (cumple gate de CI ≥80%)
 - **Archivos de test:**
   - `tests/test_domain_pedido.py` (7 tests) - US-003, US-004, US-008, US-009
   - `tests/test_domain_almacen.py` (4 tests) - US-001, US-002, US-005
@@ -56,6 +63,7 @@ Esta matriz garantiza la trazabilidad bidireccional completa entre las necesidad
   - `tests/test_domain_especificaciones_extra.py` (11 tests) - US-001, US-002, US-004, US-008, US-013
   - `tests/test_domain_services.py` (10 tests) - US-002, US-005, US-006, US-013, US-016
   - `tests/test_domain_discrepancia.py` (1 test) - US-016
+  - `tests/test_application.py` (8 tests) - US-001, US-003, US-004, US-006, US-007, US-008, US-009, US-010, US-013, US-014, US-015, US-016
 
 ---
 

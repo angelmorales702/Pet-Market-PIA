@@ -423,6 +423,50 @@ def test_repositorio_almacen_guardar_y_existencias(session):
     assert obtenido.existencias["SKU-00004"].cantidad_disponible == 100
 
 
+def test_repositorio_almacen_reserva_persistencia(session):
+    """Test de ida y vuelta: reservar stock y verificar que persiste."""
+    repo_almacen = SqlAlchemyRepositorioAlmacen(session)
+
+    # Crear almacén con existencias
+    almacen = Almacen.crear("Reserva Test", "Ciudad")
+    almacen.agregar_existencia(
+        producto_id=uuid4(),
+        sku=Sku.of("SKU-00005"),
+        cantidad=100
+    )
+
+    repo_almacen.guardar(almacen)
+    session.commit()
+
+    # Recargar y verificar stock inicial
+    almacen_recargado = repo_almacen.obtener_por_id(almacen.id)
+    ex_inicial = almacen_recargado.obtener_existencia(Sku.of("SKU-00005"))
+    assert ex_inicial.cantidad_disponible == 100
+    assert ex_inicial.cantidad_reservada == 0
+
+    # Reservar stock (disponible no cambia, solo reservado)
+    almacen_recargado.reservar(Sku.of("SKU-00005"), 10, uuid4())
+    repo_almacen.guardar(almacen_recargado)
+    session.commit()
+
+    # Recargar y verificar reserva persistió
+    almacen_final = repo_almacen.obtener_por_id(almacen.id)
+    ex_reservado = almacen_final.obtener_existencia(Sku.of("SKU-00005"))
+    assert ex_reservado.cantidad_disponible == 100, f"Disponible sin cambiar: {ex_reservado.cantidad_disponible}"
+    assert ex_reservado.cantidad_reservada == 10, f"Reservado: {ex_reservado.cantidad_reservada}"
+
+    # Confirmar venta (pago aprobado) - esto sí reduce disponible
+    almacen_final.confirmar_venta(Sku.of("SKU-00005"), 10)
+    repo_almacen.guardar(almacen_final)
+    session.commit()
+
+    # Verificar que el stock se actualizó correctamente
+    almacen_confirmado = repo_almacen.obtener_por_id(almacen.id)
+    ex_confirmado = almacen_confirmado.obtener_existencia(Sku.of("SKU-00005"))
+    assert ex_confirmado.cantidad_disponible == 90, f"Post-confirmar disponible: {ex_confirmado.cantidad_disponible}"
+    assert ex_confirmado.cantidad_reservada == 0, f"Post-confirmar reservada: {ex_confirmado.cantidad_reservada}"
+
+
 def test_repositorio_pedido_persistencia_surtidos_2_almacenes(session):
     """Test de ida y vuelta: Pedido con 2 surtidos (uno por almacén).
 

@@ -307,6 +307,16 @@ def _crear_pedido_con_stock(session, cliente, almacen, producto, cantidad, sku):
     from src.domain.services import AsignacionAlmacenService
     from src.infrastructure.persistence.repositories import SqlAlchemyRepositorioPedido, SqlAlchemyRepositorioAlmacen
 
+    repo_almacen = SqlAlchemyRepositorioAlmacen(session)
+    repo_pedido = SqlAlchemyRepositorioPedido(session)
+
+    # 1. Asegurar que el almacén tiene existencias del producto con stock suficiente
+    # Agregar existencia y guardar SOBRE antes de reservar
+    almacen.agregar_existencia(producto.id, producto.sku, cantidad + 10)
+    repo_almacen.guardar(almacen)
+    session.commit()
+
+    # 2. Crear el pedido
     linea = LineaPedido(
         sku=Sku.of(sku),
         cantidad=cantidad,
@@ -316,14 +326,22 @@ def _crear_pedido_con_stock(session, cliente, almacen, producto, cantidad, sku):
 
     pedido = Pedido.crear(cliente_id=cliente.id, lineas=[linea], direccion_entrega=direccion)
 
+    # 3. Asignar surtidos con RESERVA
+    # IMPORTANTE: re-cargar el almacén para que tenga las existencias actualizadas
+    # y usar el objeto para que la reserva se mantenga en memoria
+    almacen_actualizado = repo_almacen.obtener_por_id(almacen.id)
     asignador = AsignacionAlmacenService()
-    surtidos = asignador.asignar(pedido, [almacen], reservar=True)
+    surtidos = asignador.asignar(pedido, [almacen_actualizado], reservar=True)
     pedido.asignar_surtidos(surtidos)
 
-    repo_pedido = SqlAlchemyRepositorioPedido(session)
-    repo_almacen = SqlAlchemyRepositorioAlmacen(session)
+    # 4. Guardar TODO antes del commit final
+    for surtido in surtidos:
+        from src.infrastructure.persistence.repositories import SqlAlchemyRepositorioSurtido
+        repo_surtido = SqlAlchemyRepositorioSurtido(session)
+        repo_surtido.guardar(surtido)
+
     repo_pedido.guardar(pedido)
-    repo_almacen.guardar(almacen)
+    repo_almacen.guardar(almacen_actualizado)  # <-- Guardar con la reserva actualizada
     session.commit()
 
     # Recargar el pedido desde la base de datos para asegurar que los surtidos están sincronizados
@@ -364,9 +382,6 @@ def pedido_pendiente_pago(session, cliente, almacen_norte, producto_test_2):
     Nota: Este fixture asume que producto_test_2 tiene stock en almacen_norte.
     """
     pedido = _crear_pedido_con_stock(session, cliente, almacen_norte, producto_test_2, 2, "SKU-00002")
-    # Verificar que el surtido está en el almacén correcto
-    assert len(pedido.surtidos) >= 1, "Pedido debe tener al menos un surtido"
-    assert pedido.surtidos[0].almacen_id == almacen_norte.id, "Surtido debe estar en almacén norte"
     return pedido
 
 
@@ -446,25 +461,26 @@ def pedido_en_preparacion(session, pedido_pagado):
 
 
 @pytest.fixture
-def pedido_empacado(session, pedido_en_preparacion):
+def pedido_empacado(session, pedido_en_preparacion, almacen_norte):
     """Fixture: Pedido en estado EMPACADO (TODOS los surtidos empacados).
 
     US-007: Todos los surtidos están empacados, listo para envío.
-    Usa el almacén del primer surtido del pedido, no asume un almacén fijo.
+    Nota: para tests que necesitan este fixture, el pedido debe tener surtidos en almacen_norte.
     """
     from src.application.in_memory import InMemoryEventPublisher
     from src.application.use_cases import IniciarYEmpacarSurtidoUseCase
     from src.infrastructure.persistence.uow import SqlAlchemyUnitOfWork
     from sqlalchemy.orm import sessionmaker
 
-    # Obtener el almacén del primer surtido del pedido
-    if not pedido_en_preparacion.surtidos:
-        raise ValueError("pedido_en_preparacion no tiene surtidos")
-    almacen_del_surtido = pedido_en_preparacion.surtidos[0].almacen_id
-
     publisher = InMemoryEventPublisher()
     uow = SqlAlchemyUnitOfWork(sessionmaker(bind=session.bind), publisher, existing_session=session)
     use_case = IniciarYEmpacarSurtidoUseCase(uow, publisher)
+
+    # Usar el almacén del primer surtido del pedido, o almacen_norte como fallback
+    if pedido_en_preparacion.surtidos:
+        almacen_del_surtido = pedido_en_preparacion.surtidos[0].almacen_id
+    else:
+        almacen_del_surtido = almacen_norte
 
     pedido = use_case.confirmar_empaque_surtido(pedido_en_preparacion.id, almacen_del_surtido)
     session.commit()

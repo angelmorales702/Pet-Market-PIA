@@ -4,24 +4,15 @@
 Aprobado
 
 ## Contexto
-El flujo del `Pedido` pasa por múltiples estados (`CREADO`, `PAGADO`, `EMPACADO`, `ENVIADO`, `ENTREGADO`, `ENTREGA_FALLIDA`, `CANCELADO`, `DEVOLUCION_SOLICITADA`, `DEVUELTO`). Transiciones inválidas (por ejemplo, intentar pasar un pedido de `CREADO` directamente a `ENTREGADO`) deben ser rechazadas con excepciones de dominio explícitas.
+El flujo del `Pedido` pasa por múltiples estados. Transiciones inválidas deben ser rechazadas con excepciones de dominio explícitas.
 
 ## Decisión
 1. Implementar una **State Machine explícita** dentro de `src/domain/state_machine.py` **sin librerías externas**.
-2. Definir una tabla de transiciones permitidas con guardas explícitas:
-   - `CREADO` -> `PAGADO` (Guard: Pago exitoso registrado)
-   - `CREADO` / `PAGADO` / `EMPACADO` -> `CANCELADO` (Guard: No despachado)
-   - `PAGADO` -> `EMPACADO` (Guard: Todos los surtidos empacados)
-   - `EMPACADO` -> `ENVIADO` (Guard: Guía asignada)
-   - `ENVIADO` -> `ENTREGADO` (Guard: Intento de entrega exitoso)
-   - `ENVIADO` -> `ENTREGA_FALLIDA` (Guard: Intentos agotados)
-   - `ENTREGADO` -> `DEVOLUCION_SOLICITADA` (Guard: Solicitud de devolución)
-   - `DEVOLUCION_SOLICITADA` -> `DEVUELTO` (Guard: Inspección de devolución aprobada)
-3. Si se solicita una transición no registrada en la tabla de transiciones permitidas, se lanza la excepción `TransicionEstadoInvalidaException`.
+2. Estados: `CREADO`, `PENDIENTE_PAGO`, `PAGADO`, `EN_PREPARACION`, `EMPACADO`, `ENVIADO`, `ENTREGADO`, `CANCELADO`, `ENTREGA_FALLIDA`, `DEVUELTO`.
+3. Tabla de transiciones permitidas con guardas explícitas (ver código en `state_machine.py`).
+4. Si se solicita una transición no registrada, se lanza `TransicionEstadoInvalidaException`.
 
 ## Consecuencias
-- **Positivas**:
-  - Control total sobre las reglas del ciclo de vida del pedido.
-  - Cero dependencias de paquetes de terceros.
-- **Negativas**:
-  - Requiere mantener actualizada la tabla de transiciones ante cambios en el modelo de negocio.
+- (+) Control total sobre las reglas del ciclo de vida del pedido.
+- (+) Cero dependencias de paquetes de terceros.
+- (−) Requiere mantener actualizada la tabla de transiciones.

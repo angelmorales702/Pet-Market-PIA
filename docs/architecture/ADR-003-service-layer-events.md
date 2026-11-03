@@ -1,19 +1,15 @@
-# ADR-003: Service Layer desacoplado y Domain Events
+# ADR-003: Service Layer que solo orquesta y eventos de dominio para efectos colaterales
 
 ## Estatus
 Aprobado
 
 ## Contexto
-Los casos de uso de la aplicación deben orquestar las operaciones de dominio y persistencia sin cargar lógica de negocio. Además, ciertas acciones (como notificaciones, actualización de stocks o facturación) son efectos secundarios que no deben bloquear el flujo directo de la transacción principal.
+Casos de uso como confirmar checkout o cancelar involucran varios agregados (Pedido, Almacén, Pago).
 
 ## Decisión
-1. **Service Layer (`src/application`)**: Implementa la orquestación de casos de uso (Checkout, CancelarPedido, ProcesarPago, etc.). Los servicios no contienen reglas de negocio; simplemente cargan agregados, invocan métodos de dominio o especificaciones, persisten cambios y emiten eventos.
-2. **Domain Events (`src/domain/events`)**: Los agregados registran eventos de dominio (ej. `PedidoCreadoEvent`, `PagoAprobadoEvent`, `PedidoEmpacadoEvent`, `PedidoEnviadoEvent`) cuando ocurren cambios de estado relevantes.
-3. Un Event Dispatcher / Handler orquesta los efectos secundarios de manera limpia.
+Los Application Services tienen un método por caso de uso y no contienen reglas de negocio: cargan agregados, invocan sus métodos, guardan y publican Domain Events. Acciones secundarias (notificar al cliente, avisar al almacén) reaccionan a eventos en vez de ir dentro de métodos como `confirmar()`.
 
 ## Consecuencias
-- **Positivas**:
-  - Separación clara de responsabilidades (Single Responsibility Principle).
-  - Facilidad para extender capacidades agregando nuevos suscriptores de eventos sin alterar los servicios ni agregados existentes.
-- **Negativas**:
-  - Ligero incremento en la complejidad estructural con la introducción de controladores de eventos.
+- (+) Dominio desacoplado de correo, almacén y pasarela de pago.
+- (+) Fácil agregar nuevos efectos sin tocar el dominio.
+- (−) Hay que gestionar la publicación y manejo de eventos.

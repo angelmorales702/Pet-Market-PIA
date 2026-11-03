@@ -9,3 +9,4 @@ htmlcov/
 node_modules/
 .idea/
 .vscode/
+src/petmarket_backend.egg-info/

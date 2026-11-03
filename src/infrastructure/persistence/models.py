@@ -8,7 +8,7 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 from typing import Optional
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import (
     DateTime,
@@ -182,7 +182,7 @@ class LineaSurtidoModel(Base):
     """Modelo de persistencia para líneas del Surtido (relación N:M entre Surtido y Producto/SKU)."""
     __tablename__ = "lineas_surtido"
 
-    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
     surtido_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("surtidos.id"), nullable=False)
     sku: Mapped[str] = mapped_column(String(50), nullable=False)
     cantidad: Mapped[int] = mapped_column(Integer, nullable=False)

@@ -59,12 +59,15 @@ TRANSICIONES: Dict[EstadoPedido, Set[EstadoPedido]] = {
     EstadoPedido.ENVIADO: {
         EstadoPedido.ENTREGADO,
         EstadoPedido.ENTREGA_FALLIDA,
+        EstadoPedido.CANCELADO,
     },
     EstadoPedido.ENTREGADO: {
         EstadoPedido.DEVUELTO,
+        EstadoPedido.CANCELADO,
     },
     EstadoPedido.ENTREGA_FALLIDA: {
         EstadoPedido.DEVUELTO,
+        EstadoPedido.CANCELADO,
     },
     EstadoPedido.CANCELADO: set(),
     EstadoPedido.DEVUELTO: set(),
@@ -155,6 +158,9 @@ GUARDAS: Dict[
     (EstadoPedido.PAGADO, EstadoPedido.CANCELADO): _guard_cancelacion,
     (EstadoPedido.EN_PREPARACION, EstadoPedido.CANCELADO): _guard_cancelacion,
     (EstadoPedido.EMPACADO, EstadoPedido.CANCELADO): _guard_cancelacion,
+    (EstadoPedido.ENVIADO, EstadoPedido.CANCELADO): _guard_cancelacion,
+    (EstadoPedido.ENTREGADO, EstadoPedido.CANCELADO): _guard_cancelacion,
+    (EstadoPedido.ENTREGA_FALLIDA, EstadoPedido.CANCELADO): _guard_cancelacion,
     (EstadoPedido.EMPACADO, EstadoPedido.ENVIADO): _guard_guia,
     (EstadoPedido.ENTREGADO, EstadoPedido.DEVUELTO): _guard_devolucion,
     (EstadoPedido.ENTREGA_FALLIDA, EstadoPedido.DEVUELTO): _guard_devolucion,

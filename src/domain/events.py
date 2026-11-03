@@ -37,6 +37,13 @@ class PedidoEmpacadoEvent(DomainEvent):
 
 
 @dataclass(frozen=True)
+class SurtidoEmpacadoEvent(DomainEvent):
+    """Se emite cuando un surtido específico es marcado como EMPACADO."""
+    pedido_id: UUID
+    surtido_id: UUID
+
+
+@dataclass(frozen=True)
 class StockReservadoEvent(DomainEvent):
     """Se emite cuando se reserva inventario en un almacén para un pedido.
 
@@ -128,3 +135,14 @@ class IntentoEntregaRegistradoEvent(DomainEvent):
     pedido_id: UUID
     exitoso: bool
     numero_intento: int
+
+
+@dataclass(frozen=True)
+class DiscrepanciaInventarioDetectadaEvent(DomainEvent):
+    """Se emite cuando se detecta una discrepancia entre inventario web y físico.
+
+    US-016
+    """
+    almacen_id: UUID
+    sku: str
+    diferencia: int

@@ -53,6 +53,15 @@ class Surtido:
     estado: EstadoSurtido = EstadoSurtido.PENDIENTE
 
     def __post_init__(self) -> None:
+        # Permitir Surtido vacío al crearlo; se validará al confirmar
+        pass
+
+    def agregar_linea(self, linea: LineaPedido) -> None:
+        """Agrega una línea al surtido."""
+        self.lineas.append(linea)
+
+    def validar_no_vacio(self) -> None:
+        """Valida que el surtido tenga al menos una línea (antes de confirmar)."""
         if not self.lineas:
             raise ValueError("Un Surtido debe contener al menos una línea de pedido")
 

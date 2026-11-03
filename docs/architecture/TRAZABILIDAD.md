@@ -25,7 +25,7 @@ Esta matriz garantiza la trazabilidad bidireccional completa entre las necesidad
 | **N4** | **US-014** | Atención al cliente rechaza la devolución | `Devolucion.rechazar()`<br>Estado `RECHAZADA` | Pendiente: test de rechazo de devolución |
 | **N4** | **US-014** | Almacén confirma recepción del producto devuelto | `Devolucion.confirmar_recepcion_almacen()`<br>Estado `PROCESADA` | `test_devolucion_flujo_autorizacion_recepcion_reembolso` (test_domain_devolucion.py) |
 | **N4** | **US-015** | Reembolso procesado tras confirmación de Almacén | `Devolucion.marcar_reembolsado()`<br>`Pago.reembolsar()` | `test_devolucion_flujo_autorizacion_recepcion_reembolso` (test_domain_devolucion.py) |
-| **N1** | **US-016** | Generación del indicador de discrepancia | `# SUPUESTO: validar con el negocio`<br>Reporte comparando inventario web vs físico | Pendiente: test de indicador de discrepancia |
+| **N1** | **US-016** | Generación del indicador de discrepancia | `Almacen.detectar_discrepancia()`<br>`DiscrepanciaInventarioDetectadaEvent`<br>`DiscrepanciaInventarioSpec` | `test_almacen_detectar_discrepancia` (test_domain_discrepancia.py)<br>`test_discrepancia_inventario_spec_detecta_diferencia` (test_domain_services.py) |
 
 ---
 
@@ -46,15 +46,16 @@ Esta matriz garantiza la trazabilidad bidireccional completa entre las necesidad
 
 ## Cobertura de Tests Actual
 
-- **Tests unitarios totales:** 35
-- **Cobertura global:** ≥80% (cumple gate de CI)
+- **Tests unitarios totales:** 42
+- **Cobertura global:** 80.70% (cumple gate de CI ≥80%)
 - **Archivos de test:**
   - `tests/test_domain_pedido.py` (7 tests) - US-003, US-004, US-008, US-009
   - `tests/test_domain_almacen.py` (4 tests) - US-001, US-002, US-005
   - `tests/test_domain_devolucion.py` (4 tests) - US-013, US-014, US-015
   - `tests/test_domain_especificaciones.py` (4 tests) - US-004, US-008, US-009
   - `tests/test_domain_especificaciones_extra.py` (11 tests) - US-001, US-002, US-004, US-008, US-013
-  - `tests/test_domain_services.py` (5 tests) - US-005, US-006
+  - `tests/test_domain_services.py` (10 tests) - US-002, US-005, US-006, US-013, US-016
+  - `tests/test_domain_discrepancia.py` (1 test) - US-016
 
 ---
 

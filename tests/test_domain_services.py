@@ -1,16 +1,36 @@
 """Tests unitarios - Domain Services.
 
 US-006: Asignación de almacenes.
+US-002: Reserva 15 min (reloj inyectable).
+US-013: Días hábiles (calendario).
+US-016: Discrepancia inventario.
 """
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 from uuid import uuid4
 
-from src.domain.aggregates import Almacen
-from src.domain.entities import LineaPedido
+from src.domain.aggregates import Almacen, Pedido
+from src.domain.entities import LineaPedido, Surtido
 from src.domain.exceptions import StockInsuficienteError
-from src.domain.services import AsignacionAlmacenService
+from src.domain.services import (
+    AsignacionAlmacenService,
+    RelojFijo,
+    CalendarioDiasHabilesBasico,
+    DiscrepanciaInventarioSpec,
+)
 from src.domain.value_objects import DireccionEntrega, Dinero, Sku
+from src.domain.state_machine import EstadoPedido
+
+
+def _crear_pedido(lineas: list[LineaPedido]) -> Pedido:
+    return Pedido(
+        id=uuid4(),
+        cliente_id=uuid4(),
+        lineas=lineas,
+        direccion_entrega=DireccionEntrega("Calle", "1", "Col", "Ciudad", "64000"),
+        estado=EstadoPedido.CREADO,
+    )
 
 
 def test_asignacion_almacen_service_un_solo_almacen() -> None:
@@ -20,9 +40,9 @@ def test_asignacion_almacen_service_un_solo_almacen() -> None:
     sku = Sku.of("SKU-10001")
     almacen.agregar_existencia(producto_id, sku, 10)
 
-    lineas = [LineaPedido(sku, 2, Dinero(50, "MXN"))]
+    pedido = _crear_pedido([LineaPedido(sku, 2, Dinero(50, "MXN"))])
     service = AsignacionAlmacenService()
-    surtidos = service.asignar(lineas, [almacen])
+    surtidos = service.asignar(pedido, [almacen])
 
     assert len(surtidos) == 1
     assert surtidos[0].almacen_id == almacen.id
@@ -41,42 +61,43 @@ def test_asignacion_almacen_service_dos_almacenes() -> None:
     almacen_norte.agregar_existencia(producto_id, sku_1, 5)
     almacen_sur.agregar_existencia(producto_id, sku_2, 3)
 
-    lineas = [
+    pedido = _crear_pedido([
         LineaPedido(sku_1, 2, Dinero(100, "MXN")),
         LineaPedido(sku_2, 1, Dinero(150, "MXN")),
-    ]
+    ])
     service = AsignacionAlmacenService()
-    surtidos = service.asignar(lineas, [almacen_norte, almacen_sur])
+    surtidos = service.asignar(pedido, [almacen_norte, almacen_sur])
 
     assert len(surtidos) == 2
     almacenes_ids = {s.almacen_id for s in surtidos}
     assert len(almacenes_ids) == 2
 
 
-def test_asignacion_almacen_stock_insuficiente() -> None:
-    """US-005: Stock insuficiente lanza excepción."""
+def test_asignacion_almacen_stock_insuficiente_emite_evento_y_omite_linea() -> None:
+    """US-005: Stock insuficiente -> solo se emite evento, se omite la línea (no excepción)."""
     almacen = Almacen.crear("Norte", "Monterrey")
     producto_id = uuid4()
     sku = Sku.of("SKU-30001")
     almacen.agregar_existencia(producto_id, sku, 2)
 
-    lineas = [LineaPedido(sku, 5, Dinero(50, "MXN"))]
+    pedido = _crear_pedido([LineaPedido(sku, 5, Dinero(50, "MXN"))])
     service = AsignacionAlmacenService()
+    surtidos = service.asignar(pedido, [almacen])
 
-    try:
-        service.asignar(lineas, [almacen])
-        assert False, "Debería haber lanzado StockInsuficienteError"
-    except StockInsuficienteError:
-        pass
+    # No hay surtidos creados porque la línea no tiene stock
+    assert len(surtidos) == 0
+    # Se emitió el evento
+    eventos = almacen.domain_events
+    assert any(e.__class__.__name__ == "StockInsuficienteEvent" for e in eventos)
 
 
 def test_asignacion_almacen_sin_almacenes() -> None:
     """Sin almacenes debe lanzar error."""
-    lineas = [LineaPedido(Sku.of("SKU-40001"), 1, Dinero(100, "MXN"))]
+    pedido = _crear_pedido([LineaPedido(Sku.of("SKU-40001"), 1, Dinero(100, "MXN"))])
     service = AsignacionAlmacenService()
 
     try:
-        service.asignar(lineas, [])
+        service.asignar(pedido, [])
         assert False, "Debería haber lanzado ValueError"
     except ValueError:
         pass
@@ -91,12 +112,79 @@ def test_asignacion_almacen_multiple_lineas_mismo_almacen() -> None:
     almacen.agregar_existencia(producto_id, sku_1, 10)
     almacen.agregar_existencia(producto_id, sku_2, 10)
 
-    lineas = [
+    pedido = _crear_pedido([
         LineaPedido(sku_1, 2, Dinero(50, "MXN")),
         LineaPedido(sku_2, 3, Dinero(75, "MXN")),
-    ]
+    ])
     service = AsignacionAlmacenService()
-    surtidos = service.asignar(lineas, [almacen])
+    surtidos = service.asignar(pedido, [almacen])
 
     assert len(surtidos) == 1
     assert len(surtidos[0].lineas) == 2
+
+
+# --- Tests Reloj inyectable (US-002) ---
+
+def test_reloj_fijo_para_tests_deterministicos() -> None:
+    """Reloj inyectable permite tests determinísticos de expiración de 15 min."""
+    fecha_base = datetime(2024, 1, 15, 10, 0, 0)
+    reloj = RelojFijo(fecha_base)
+    assert reloj.ahora() == fecha_base
+
+
+def test_reloj_fijo_avanzado() -> None:
+    """Avanzar el reloj simula paso del tiempo."""
+    fecha_base = datetime(2024, 1, 15, 10, 0, 0)
+    reloj = RelojFijo(fecha_base)
+    # Simular 20 min después
+    reloj = RelojFijo(fecha_base + timedelta(minutes=20))
+    assert reloj.ahora() > fecha_base + timedelta(minutes=15)
+
+
+# --- Tests Calendario días hábiles (US-013) ---
+
+def test_calendario_dias_habiles_basico_lunes_a_viernes() -> None:
+    """Calendario cuenta solo días laborables (lunes-viernes)."""
+    cal = CalendarioDiasHabilesBasico()
+    # Lunes 15 ene 2024
+    inicio = datetime(2024, 1, 15, 10, 0, 0)
+    # 5 días hábiles -> lunes 22 ene
+    fin = cal.agregar_dias_habiles(inicio, 5)
+    assert fin == datetime(2024, 1, 22, 10, 0, 0)
+
+
+def test_calendario_salta_fin_de_semana() -> None:
+    """Calendario salta sábado y domingo."""
+    cal = CalendarioDiasHabilesBasico()
+    # Viernes 19 ene 2024
+    inicio = datetime(2024, 1, 19, 10, 0, 0)
+    # 1 día hábil -> lunes 22 ene
+    fin = cal.agregar_dias_habiles(inicio, 1)
+    assert fin == datetime(2024, 1, 22, 10, 0, 0)
+
+
+def test_calendario_festivos() -> None:
+    """Calendario puede excluir festivos."""
+    cal = CalendarioDiasHabilesBasico()
+    festivo = datetime(2024, 1, 16, 10, 0, 0)  # Martes 16
+    cal.agregar_festivo(festivo)
+    inicio = datetime(2024, 1, 15, 10, 0, 0)  # Lunes 15
+    # 1 día hábil -> miércoles 17 (martes es festivo)
+    fin = cal.agregar_dias_habiles(inicio, 1)
+    assert fin == datetime(2024, 1, 17, 10, 0, 0)
+
+
+# --- Tests Discrepancia (US-016) ---
+
+def test_discrepancia_inventario_spec_detecta_diferencia() -> None:
+    """US-016: Specification detecta discrepancia web vs físico."""
+    almacen = Almacen.crear("Norte", "Monterrey")
+    producto_id = uuid4()
+    sku = Sku.of("SKU-70001")
+    almacen.agregar_existencia(producto_id, sku, 10)
+
+    spec = DiscrepanciaInventarioSpec(sku, 8)  # físico = 8, web = 10
+    assert spec.is_satisfied_by(almacen) is True
+
+    spec_ok = DiscrepanciaInventarioSpec(sku, 10)  # igual
+    assert spec_ok.is_satisfied_by(almacen) is False

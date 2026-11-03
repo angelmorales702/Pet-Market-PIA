@@ -23,6 +23,7 @@ from .entities import (
 from .events import (
     DevolucionAprobadaEvent,
     DevolucionSolicitadaEvent,
+    DiscrepanciaInventarioDetectadaEvent,
     EntregaFallidaEvent,
     IntentoEntregaRegistradoEvent,
     PagoAprobadoEvent,
@@ -34,6 +35,7 @@ from .events import (
     PedidoEnviadoEvent,
     StockInsuficienteEvent,
     StockReservadoEvent,
+    SurtidoEmpacadoEvent,
 )
 from .exceptions import (
     CancelacionNoPermitidaError,
@@ -58,8 +60,10 @@ from .value_objects import (
 
 class AggregateRoot:
     """Clase base para Aggregate Roots con manejo de Domain Events."""
+    _domain_events: list
+
     def __init__(self) -> None:
-        self._domain_events: list = []
+        self._domain_events = []
 
     @property
     def domain_events(self) -> list:
@@ -72,6 +76,11 @@ class AggregateRoot:
         events = self._domain_events
         self._domain_events = []
         return events
+
+    def __post_init__(self) -> None:
+        """Llamado por dataclass después de __init__."""
+        if not hasattr(self, '_domain_events') or self._domain_events is None:
+            self._domain_events = []
 
 
 # ============================================================================
@@ -273,10 +282,11 @@ class Pedido(AggregateRoot):
     @property
     def total(self) -> Dinero:
         """Monto total del pedido."""
-        return sum(
-            (linea.precio_unitario.monto * linea.cantidad for linea in self.lineas),
-            Dinero(0, "MXN"),
-        )  # type: ignore[return-value]
+        total = Dinero(0, "MXN")
+        for linea in self.lineas:
+            subtotal = Dinero(linea.precio_unitario.monto * linea.cantidad, linea.precio_unitario.moneda)
+            total = total + subtotal
+        return total
 
     def _transicionar(self, nuevo_estado: EstadoPedido, contexto: dict | None = None) -> None:
         """Realiza la transición de estado usando la State Machine."""
@@ -416,10 +426,16 @@ class Almacen(AggregateRoot):
         if ex:
             ex.confirmar_reserva(cantidad)
 
-    def reponer(self, sku: Sku, cantidad: int) -> None:
+    def detectar_discrepancia(self, sku: Sku, cantidad_fisica: int) -> None:
+        """US-016: Detecta discrepancia entre inventario web y físico."""
         ex = self.obtener_existencia(sku)
-        if ex:
-            ex.cantidad_disponible += cantidad
+        cantidad_web = ex.cantidad_disponible if ex else 0
+        if cantidad_web != cantidad_fisica:
+            self.add_domain_event(DiscrepanciaInventarioDetectadaEvent(
+                almacen_id=self.id,
+                sku=str(sku),
+                diferencia=cantidad_fisica - cantidad_web,
+            ))
 
 
 # ============================================================================

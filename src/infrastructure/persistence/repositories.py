@@ -437,6 +437,11 @@ class SqlAlchemyRepositorioProducto(RepositorioProducto):
         models = self._session.execute(stmt).scalars().all()
         return [_map_producto_to_domain(m) for m in models]
 
+    def obtener_todos(self) -> List[Producto]:
+        stmt = select(ProductoModel)
+        models = self._session.execute(stmt).scalars().all()
+        return [_map_producto_to_domain(m) for m in models]
+
 
 class SqlAlchemyRepositorioAlmacen(RepositorioAlmacen):
     def __init__(self, session: Session):

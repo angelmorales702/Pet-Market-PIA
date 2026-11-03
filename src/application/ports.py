@@ -78,6 +78,10 @@ class RepositorioProducto(ABC):
     def obtener_activos(self) -> List[Producto]:
         pass
 
+    @abstractmethod
+    def obtener_todos(self) -> List[Producto]:
+        pass
+
 
 class RepositorioAlmacen(ABC):
     """Puerto para persistencia de Almacenes."""

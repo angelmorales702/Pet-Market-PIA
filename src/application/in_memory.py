@@ -74,6 +74,9 @@ class InMemoryRepositorioProducto(RepositorioProducto):
     def obtener_activos(self) -> List[Producto]:
         return [p for p in self.storage.values() if p.activo]
 
+    def obtener_todos(self) -> List[Producto]:
+        return list(self.storage.values())
+
 
 class InMemoryRepositorioAlmacen(RepositorioAlmacen):
     def __init__(self):

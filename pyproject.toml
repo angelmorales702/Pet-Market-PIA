@@ -36,6 +36,18 @@ addopts = "--strict-markers -ra --cov=src --cov-report=term-missing --cov-fail-u
 source = ["src"]
 omit = ["tests/*"]
 
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "@abstractmethod",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "def __repr__",
+    "def __str__",
+    "def __hash__",
+    "def __post_init__",
+]
+
 [tool.ruff]
 line-length = 100
 target-version = "py312"

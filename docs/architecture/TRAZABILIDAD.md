@@ -53,8 +53,8 @@ Esta matriz garantiza la trazabilidad bidireccional completa entre las necesidad
 
 ## Cobertura de Tests Actual
 
-- **Tests unitarios totales:** 50 (42 dominio + 8 aplicación)
-- **Cobertura global:** 83.78% (cumple gate de CI ≥80%)
+- **Tests unitarios totales:** 58 (42 dominio + 8 aplicación + 8 infraestructura)
+- **Cobertura global:** 86.00% (cumple gate de CI ≥85%)
 - **Archivos de test:**
   - `tests/test_domain_pedido.py` (7 tests) - US-003, US-004, US-008, US-009
   - `tests/test_domain_almacen.py` (4 tests) - US-001, US-002, US-005
@@ -64,6 +64,7 @@ Esta matriz garantiza la trazabilidad bidireccional completa entre las necesidad
   - `tests/test_domain_services.py` (10 tests) - US-002, US-005, US-006, US-013, US-016
   - `tests/test_domain_discrepancia.py` (1 test) - US-016
   - `tests/test_application.py` (8 tests) - US-001, US-003, US-004, US-006, US-007, US-008, US-009, US-010, US-013, US-014, US-015, US-016
+  - `tests/test_infrastructure.py` (8 tests) - Validación de modelos SQLAlchemy, repositorios y UoW
 
 ---
 

@@ -1,3 +1,5 @@
+name: petmarket
+
 services:
   db:
     image: postgres:16-alpine
@@ -15,6 +17,7 @@ services:
       retries: 5
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
 
   app:
     build:
@@ -26,7 +29,7 @@ services:
     environment:
       ENVIRONMENT: production
       PORT: 8000
-      DATABASE_URL: postgresql://petmarket_user:petmarket_pass@db:5432/petmarket_db
+      DATABASE_URL: postgresql://${DATABASE_URL}
     depends_on:
       db:
         condition: service_healthy
@@ -37,7 +40,8 @@ services:
       dockerfile: Dockerfile
     container_name: petmarket_tests
     environment:
-      DATABASE_URL: postgresql://petmarket_user:petmarket_pass@db:5432/petmarket_db
+      DATABASE_URL: postgresql://${DATABASE_URL}
+      TEST_DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/petmarket_db
     command: ["pytest", "--cov=src", "--cov-fail-under=80"]
     depends_on:
       db:

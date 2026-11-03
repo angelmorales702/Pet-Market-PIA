@@ -70,6 +70,8 @@ def upgrade() -> None:
     )
 
     # existencias table
+    # NOTA: almacen_id y producto_id NO tienen FK porque son aggregate roots distintos
+    # Según ADR-002/ADR-003, las relaciones entre agregados referencian solo por ID
     op.create_table('existencias',
         sa.Column('id', postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column('almacen_id', postgresql.UUID(as_uuid=True), nullable=False),
@@ -77,13 +79,13 @@ def upgrade() -> None:
         sa.Column('sku', sa.String(length=50), nullable=False),
         sa.Column('cantidad_disponible', sa.Integer(), nullable=False, server_default='0'),
         sa.Column('cantidad_reservada', sa.Integer(), nullable=False, server_default='0'),
-        sa.ForeignKeyConstraint(['almacen_id'], ['almacenes.id'], ondelete='CASCADE'),
-        sa.ForeignKeyConstraint(['producto_id'], ['productos.id'], ondelete='CASCADE'),
         sa.PrimaryKeyConstraint('id'),
         sa.UniqueConstraint('almacen_id', 'sku', name='uq_almacen_sku')
     )
 
     # pedidos table
+    # NOTA: cliente_id NO tiene FK porque Cliente es un aggregate root distinto
+    # Según ADR-002/ADR-003, las relaciones entre agregados referencian solo por ID
     op.create_table('pedidos',
         sa.Column('id', postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column('cliente_id', postgresql.UUID(as_uuid=True), nullable=False),
@@ -96,7 +98,6 @@ def upgrade() -> None:
         sa.Column('reintentos_pago', sa.Integer(), nullable=False, server_default='0'),
         sa.Column('fecha_creacion', sa.DateTime(), nullable=False),
         sa.Column('fecha_actualizacion', sa.DateTime(), nullable=False),
-        sa.ForeignKeyConstraint(['cliente_id'], ['clientes.id'], ondelete='RESTRICT'),
         sa.PrimaryKeyConstraint('id')
     )
 
@@ -113,12 +114,13 @@ def upgrade() -> None:
     )
 
     # surtidos table
+    # NOTA: almacen_id NO tiene FK porque Almacen es un aggregate root distinto
+    # Según ADR-002/ADR-003, las relaciones entre agregados referencian solo por ID
     op.create_table('surtidos',
         sa.Column('id', postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column('pedido_id', postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column('almacen_id', postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column('estado', sa.String(length=50), nullable=False, server_default='PENDIENTE'),
-        sa.ForeignKeyConstraint(['almacen_id'], ['almacenes.id'], ondelete='RESTRICT'),
         sa.ForeignKeyConstraint(['pedido_id'], ['pedidos.id'], ondelete='CASCADE'),
         sa.PrimaryKeyConstraint('id')
     )

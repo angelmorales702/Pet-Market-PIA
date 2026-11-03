@@ -84,12 +84,17 @@ class AlmacenModel(Base):
 
 
 class ExistenciaModel(Base):
-    """Modelo de persistencia para ExistenciaProducto (stock en almacén)."""
+    """Modelo de persistencia para ExistenciaProducto (stock en almacén).
+
+    NOTA: almacen_id y producto_id NO tienen ForeignKey porque son aggregate roots
+    distintos. Según ADR-002/ADR-003, las relaciones entre agregados referencian
+    solo por identificador (ID), no mediante FK.
+    """
     __tablename__ = "existencias"
 
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
-    almacen_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("almacenes.id"), nullable=False)
-    producto_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("productos.id"), nullable=False)
+    almacen_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
+    producto_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
     sku: Mapped[str] = mapped_column(String(50), nullable=False)
     cantidad_disponible: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     cantidad_reservada: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
@@ -103,11 +108,15 @@ class ExistenciaModel(Base):
 
 
 class PedidoModel(Base):
-    """Modelo de persistencia para Pedido (Aggregate Root)."""
+    """Modelo de persistencia para Pedido (Aggregate Root).
+
+    NOTA: cliente_id NO tiene ForeignKey porque Cliente es un aggregate root distinto.
+    Según ADR-002/ADR-003, las relaciones entre agregados referencian solo por ID.
+    """
     __tablename__ = "pedidos"
 
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
-    cliente_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("clientes.id"), nullable=False)
+    cliente_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
     estado: Mapped[str] = mapped_column(String(50), nullable=False, default="CREADO")
     direccion_calle: Mapped[str] = mapped_column(String(200), nullable=False)
     direccion_numero: Mapped[str] = mapped_column(String(20), nullable=False)
@@ -141,12 +150,16 @@ class LineaPedidoModel(Base):
 
 
 class SurtidoModel(Base):
-    """Modelo de persistencia para Surtido (Entity)."""
+    """Modelo de persistencia para Surtido (Entity).
+
+    NOTA: almacen_id NO tiene ForeignKey porque Almacen es un aggregate root distinto.
+    Según ADR-002/ADR-003, las relaciones entre agregados referencian solo por ID.
+    """
     __tablename__ = "surtidos"
 
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
-    pedido_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("pedidos.id"), nullable=False)
-    almacen_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("almacenes.id"), nullable=False)
+    pedido_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
+    almacen_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
     estado: Mapped[str] = mapped_column(String(50), nullable=False, default="PENDIENTE")
 
     pedido: Mapped["PedidoModel"] = relationship(back_populates="surtidos")

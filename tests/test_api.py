@@ -174,13 +174,65 @@ def test_data(db_session):
 # Tests de Health Check
 # =============================================================================
 
-def test_health_check_returns_200(client):
-    """Endpoint /health debe responder con 200 OK."""
+def test_health_check_returns_200(db_session):
+    """Endpoint /health debe responder correctamente."""
+    # Importar directamente la app para testear el endpoint
+    from src.api.main import app
+    from fastapi.testclient import TestClient
+
+    client = TestClient(app)
     response = client.get("/health")
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "healthy"
     assert data["service"] == "petmarket-api"
+
+
+# =============================================================================
+# Tests de schemas Pydantic
+# =============================================================================
+
+class TestSchemas:
+    """Tests de los schemas Pydantic de la API."""
+
+    def test_producto_schema_from_domain(self, test_data):
+        """Test del schema de producto."""
+        from src.api.main import ProductoSchema
+
+        schema = ProductoSchema.from_domain(test_data["producto"])
+        assert schema.id == str(test_data["producto"].id)
+        assert schema.sku == str(test_data["producto"].sku)
+        assert schema.nombre == test_data["producto"].nombre
+        assert schema.activo == test_data["producto"].activo
+
+    def test_lista_productos_response(self, test_data):
+        """Test del response de lista de productos."""
+        from src.api.main import ListaProductosResponse, ProductoSchema
+
+        response = ListaProductosResponse(
+            productos=[ProductoSchema.from_domain(test_data["producto"])],
+            total=1
+        )
+        assert response.total == 1
+        assert len(response.productos) == 1
+
+    def test_almacen_schema_from_domain(self, test_data):
+        """Test del schema de almacén."""
+        from src.api.main import AlmacenSchema
+
+        schema = AlmacenSchema.from_domain(test_data["almacen"])
+        assert schema.id == str(test_data["almacen"].id)
+        assert schema.nombre == test_data["almacen"].nombre
+
+    def test_pedido_response_from_domain(self, test_data):
+        """Test del response de pedido."""
+        from src.api.main import PedidoResponse
+
+        response = PedidoResponse.from_domain(test_data["pedido"])
+        assert response.id == str(test_data["pedido"].id)
+        assert response.cliente_id == str(test_data["pedido"].cliente_id)
+        assert response.estado == test_data["pedido"].estado.value
+        assert response.total == str(test_data["pedido"].total.monto)
 
 
 # =============================================================================

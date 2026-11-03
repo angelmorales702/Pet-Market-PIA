@@ -52,9 +52,10 @@ from src.infrastructure.persistence.uow import SqlAlchemyUnitOfWork
 
 # Configuración de base de datos para tests
 # Usar TEST_DATABASE_URL del entorno o una por defecto para tests locales
+# Para CI/CD, crear la BD con: psql -c "CREATE DATABASE petmarket_test"
 TEST_DATABASE_URL = os.getenv(
     "TEST_DATABASE_URL",
-    "postgresql://petmarket_user:petmarket_pass@localhost:5432/petmarket_test"
+    "postgresql://petmarket_user:petmarket_pass@localhost:5432/petmarket_db"
 )
 
 # Variable para CI: si REQUIRE_DB=1, los tests fallan en lugar de omitirse
@@ -387,7 +388,7 @@ def test_repositorio_pago_guardar_y_obtener(session):
     repo_cliente = SqlAlchemyRepositorioCliente(session)
 
     producto = Producto.crear(
-        sku=Sku.of("SKU-PAGO-001"),
+        sku=Sku.of("SKU00001"),
         nombre="Test Product",
         descripcion="Test Product Description",
         precio=Dinero(100, "MXN"),
@@ -403,7 +404,7 @@ def test_repositorio_pago_guardar_y_obtener(session):
     # Crear un pedido
     repo_pedido = SqlAlchemyRepositorioPedido(session)
     lineas = [
-        LineaPedido(sku=Sku.of("SKU-PAGO-001"), cantidad=1, precio_unitario=Dinero(100, "MXN"))
+        LineaPedido(sku=Sku.of("SKU00001"), cantidad=1, precio_unitario=Dinero(100, "MXN"))
     ]
     direccion = DireccionEntrega("Calle Pago", "1", "Centro", "CDMX", "01000")
     pedido = Pedido.crear(cliente_id=cliente.id, lineas=lineas, direccion_entrega=direccion)
@@ -448,7 +449,7 @@ def test_repositorio_envio_guardar_y_obtener(session):
     session.commit()
 
     lineas = [
-        LineaPedido(sku=Sku.of("SKU-ENVIO-001"), cantidad=2, precio_unitario=Dinero(50, "MXN"))
+        LineaPedido(sku=Sku.of("SKU00002"), cantidad=2, precio_unitario=Dinero(50, "MXN"))
     ]
     direccion = DireccionEntrega("Calle Envio", "2", "Centro", "CDMX", "01001")
     pedido = Pedido.crear(cliente_id=cliente.id, lineas=lineas, direccion_entrega=direccion)
@@ -486,7 +487,7 @@ def test_repositorio_devolucion_guardar_y_obtener(session):
     session.commit()
 
     lineas = [
-        LineaPedido(sku=Sku.of("SKU-DEV-001"), cantidad=1, precio_unitario=Dinero(200, "MXN"))
+        LineaPedido(sku=Sku.of("SKU00003"), cantidad=1, precio_unitario=Dinero(200, "MXN"))
     ]
     direccion = DireccionEntrega("Calle Dev", "3", "Centro", "CDMX", "01002")
     pedido = Pedido.crear(cliente_id=cliente.id, lineas=lineas, direccion_entrega=direccion)
@@ -497,7 +498,7 @@ def test_repositorio_devolucion_guardar_y_obtener(session):
     devolucion = Devolucion.crear(
         pedido_id=pedido.id,
         motivo=MotivoDevolucion.of("Producto defectuoso"),
-        lineas=[LineaPedido(sku=Sku.of("SKU-DEV-001"), cantidad=1, precio_unitario=Dinero(200, "MXN"))]
+        lineas=[LineaPedido(sku=Sku.of("SKU00003"), cantidad=1, precio_unitario=Dinero(200, "MXN"))]
     )
     repo_devolucion.guardar(devolucion)
     session.commit()
@@ -520,7 +521,7 @@ def test_repositorio_almacen_guardar_y_existencias(session):
     almacen = Almacen.crear("Baja California", "Tijuana")
     almacen.agregar_existencia(
         producto_id=uuid4(),
-        sku=Sku.of("SKU-BCX-001"),
+        sku=Sku.of("SKU00004"),
         cantidad=100
     )
 
@@ -532,7 +533,7 @@ def test_repositorio_almacen_guardar_y_existencias(session):
     assert obtenido is not None
     assert obtenido.nombre == "Baja California"
     assert len(obtenido.existencias) == 1
-    assert obtenido.existencias["SKU-BCX-001"].cantidad_disponible == 100
+    assert obtenido.existencias["SKU00004"].cantidad_disponible == 100
 
     print("✓ Test de Almacén con existencias pasó")
 

@@ -8,7 +8,7 @@ Se requiere almacenamiento relacional persistente, compatible con transacciones 
 
 ## Decisión
 1. Utilizar **PostgreSQL 16** como base de datos relacional.
-2. Emplear **SQLAlchemy 2.0** en modo async/sync con Mappers o Repository pattern en `src/infrastructure/db/` para aislar los modelos de dominio de las tablas SQL.
+2. Emplear **SQLAlchemy 2.0** en modo async/sync con Mappers ou Repository pattern en `src/infrastructure/db/` para aislar los modelos de dominio de las tablas SQL.
 3. Utilizar **Alembic** para la gestión de migraciones de base de datos de manera versionada.
 
 ## Consecuencias
@@ -36,3 +36,13 @@ Las columnas `estado` en las tablas `pedidos`, `surtidos`, `pagos`, `envios` y `
 - Las migraciones usan `sa.String(length=50)` con `server_default` para valores por defecto.
 
 **Validación**: Cualquier valor inválido en la columna `estado` será rechazado por la lógica del dominio al deserializar el agregado.
+
+### Foreign Keys entre Aggregate Roots
+
+Según ADR-002 y ADR-003, las relaciones entre **aggregate roots distintos** deben referenciar solo por identificador (ID), **sin ForeignKey**.
+
+**Regla aplicada**:
+- `Existencia.almacen_id`: tiene FK → `almacenes.id` (misma agregación: Almacén)
+- `Existencia.producto_id`: **NO tiene FK** → `productos.id` (aggregate root distinto)
+- `Pedido.cliente_id`: **NO tiene FK** → `clientes.id` (aggregate root distinto)
+- `Surtido.almacen_id`: **NO tiene FK** → `almacenes.id` (aggregate root distinto; Surtido es entidad de Pedido)

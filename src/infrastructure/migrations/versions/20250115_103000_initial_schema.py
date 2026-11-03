@@ -70,8 +70,9 @@ def upgrade() -> None:
     )
 
     # existencias table
-    # NOTA: almacen_id y producto_id NO tienen FK porque son aggregate roots distintos
-    # Según ADR-002/ADR-003, las relaciones entre agregados referencian solo por ID
+    # ExistenciaProducto es entidad dentro del agregado Almacén.
+    # - almacen_id: FK dentro del mismo agregado (Almacén)
+    # - producto_id: cross-aggregate reference (Producto es aggregate root distinto)
     op.create_table('existencias',
         sa.Column('id', postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column('almacen_id', postgresql.UUID(as_uuid=True), nullable=False),
@@ -79,6 +80,7 @@ def upgrade() -> None:
         sa.Column('sku', sa.String(length=50), nullable=False),
         sa.Column('cantidad_disponible', sa.Integer(), nullable=False, server_default='0'),
         sa.Column('cantidad_reservada', sa.Integer(), nullable=False, server_default='0'),
+        sa.ForeignKeyConstraint(['almacen_id'], ['almacenes.id'], ondelete='CASCADE'),
         sa.PrimaryKeyConstraint('id'),
         sa.UniqueConstraint('almacen_id', 'sku', name='uq_almacen_sku')
     )

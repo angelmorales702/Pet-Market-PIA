@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import List, Optional, Sequence
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload, selectinload
@@ -584,7 +584,7 @@ class SqlAlchemyRepositorioSurtido(RepositorioSurtido):
         self._session.merge(model)
         for linea in surtido.lineas:
             linea_model = LineaSurtidoModel(
-                id=linea.__dict__.get('_id') or None,
+                id=linea.__dict__.get('_id') or uuid4(),
                 surtido_id=surtido.id,
                 sku=str(linea.sku),
                 cantidad=linea.cantidad,

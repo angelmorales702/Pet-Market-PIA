@@ -20,6 +20,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
+from sqlalchemy.orm import foreign
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -40,7 +41,10 @@ class ClienteModel(Base):
     fecha_creacion: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
     direcciones: Mapped[list["DireccionModel"]] = relationship(back_populates="cliente", cascade="all, delete-orphan")
-    pedidos: Mapped[list["PedidoModel"]] = relationship(back_populates="cliente")
+    pedidos: Mapped[list["PedidoModel"]] = relationship(
+        back_populates="cliente",
+        primaryjoin="ClienteModel.id == foreign(PedidoModel.cliente_id)"
+    )
 
 
 class DireccionModel(Base):
@@ -86,21 +90,23 @@ class AlmacenModel(Base):
 class ExistenciaModel(Base):
     """Modelo de persistencia para ExistenciaProducto (stock en almacén).
 
-    NOTA: almacen_id y producto_id NO tienen ForeignKey porque son aggregate roots
-    distintos. Según ADR-002/ADR-003, las relaciones entre agregados referencian
-    solo por identificador (ID), no mediante FK.
+    ExistenciaProducto es una entidad dentro del agregado Almacén.
+    - almacen_id: FK dentro del mismo agregado (Almacén) ✓
+    - producto_id: Cross-aggregate reference (Producto es aggregate root distinto) ✗
     """
     __tablename__ = "existencias"
 
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
-    almacen_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
-    producto_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
+    almacen_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("almacenes.id", ondelete="CASCADE"), nullable=False)
+    producto_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)  # No tiene FK - aggregate root distinto
     sku: Mapped[str] = mapped_column(String(50), nullable=False)
     cantidad_disponible: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     cantidad_reservada: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     almacen: Mapped["AlmacenModel"] = relationship(back_populates="existencias")
-    producto: Mapped["ProductoModel"] = relationship()
+    producto: Mapped["ProductoModel"] = relationship(
+        primaryjoin="ExistenciaModel.producto_id == foreign(ProductoModel.id)"
+    )
 
     __table_args__ = (
         UniqueConstraint("almacen_id", "sku", name="uq_almacen_sku"),
@@ -110,7 +116,7 @@ class ExistenciaModel(Base):
 class PedidoModel(Base):
     """Modelo de persistencia para Pedido (Aggregate Root).
 
-    NOTA: cliente_id NO tiene ForeignKey porque Cliente es un aggregate root distinto.
+    cliente_id NO tiene ForeignKey porque Cliente es un aggregate root distinto.
     Según ADR-002/ADR-003, las relaciones entre agregados referencian solo por ID.
     """
     __tablename__ = "pedidos"
@@ -127,7 +133,10 @@ class PedidoModel(Base):
     fecha_creacion: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     fecha_actualizacion: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
-    cliente: Mapped["ClienteModel"] = relationship(back_populates="pedidos")
+    cliente: Mapped["ClienteModel"] = relationship(
+        back_populates="pedidos",
+        primaryjoin="ClienteModel.id == foreign(PedidoModel.cliente_id)"
+    )
     lineas: Mapped[list["LineaPedidoModel"]] = relationship(back_populates="pedido", cascade="all, delete-orphan")
     surtidos: Mapped[list["SurtidoModel"]] = relationship(back_populates="pedido", cascade="all, delete-orphan")
     pago: Mapped[Optional["PagoModel"]] = relationship(back_populates="pedido", uselist=False)
@@ -152,18 +161,20 @@ class LineaPedidoModel(Base):
 class SurtidoModel(Base):
     """Modelo de persistencia para Surtido (Entity).
 
-    NOTA: almacen_id NO tiene ForeignKey porque Almacen es un aggregate root distinto.
-    Según ADR-002/ADR-003, las relaciones entre agregados referencian solo por ID.
+    - pedido_id: FK dentro del mismo agregado (es entidad hija de Pedido)
+    - almacen_id: Cross-aggregate reference (Almacen es aggregate root distinto)
     """
     __tablename__ = "surtidos"
 
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
-    pedido_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
-    almacen_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
+    pedido_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("pedidos.id", ondelete="CASCADE"), nullable=False)
+    almacen_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)  # Cross-aggregate
     estado: Mapped[str] = mapped_column(String(50), nullable=False, default="PENDIENTE")
 
     pedido: Mapped["PedidoModel"] = relationship(back_populates="surtidos")
-    almacen: Mapped["AlmacenModel"] = relationship()
+    almacen: Mapped["AlmacenModel"] = relationship(
+        primaryjoin="SurtidoModel.almacen_id == foreign(AlmacenModel.id)"
+    )
     lineas: Mapped[list["LineaSurtidoModel"]] = relationship(back_populates="surtido", cascade="all, delete-orphan")
 
 

@@ -192,14 +192,14 @@ class Pedido(AggregateRoot):
         self.fecha_actualizacion = datetime.now()
 
     def confirmar_empaque(self, almacen_id: UUID) -> None:
-        """Confirma el empaque de un surtido específico.
+        """Confirma el empaquetado de un surtido específico.
 
         US-007: Operador realiza picking y empaquetado.
         """
         surtido = next((s for s in self.surtidos if s.almacen_id == almacen_id), None)
         if not surtido:
             from .exceptions import SurtidoNoEncontradoError
-            raise SurtidoNoEncontradoError(str(almacen_id))
+            raise SurtidoNoEncontradoError(f"no_encontrado_para_almacen_{almacen_id}")
         surtido.marcar_empacado()
         self.add_domain_event(SurtidoEmpacadoEvent(
             pedido_id=self.id,

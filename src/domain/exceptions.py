@@ -105,3 +105,31 @@ class CancelacionNoPermitidaError(DominioError):
         super().__init__(
             f"La cancelación no está permitida para un pedido en estado '{estado}'"
         )
+
+
+class PedidoNoEncontradoError(DominioError):
+    """No existe el pedido con el ID especificado."""
+    def __init__(self, pedido_id: str) -> None:
+        self.pedido_id = pedido_id
+        super().__init__(f"Pedido no encontrado con ID '{pedido_id}'")
+
+
+class DevolucionNoEncontradoError(DominioError):
+    """No existe la devolución con el ID especificado."""
+    def __init__(self, devolucion_id: str) -> None:
+        self.devolucion_id = devolucion_id
+        super().__init__(f"Devolución no encontrada con ID '{devolucion_id}'")
+
+
+class AlmacenNoEncontradoError(DominioError):
+    """No existe el almacén con el ID especificado."""
+    def __init__(self, almacen_id: str) -> None:
+        self.almacen_id = almacen_id
+        super().__init__(f"Almacén no encontrado con ID '{almacen_id}'")
+
+
+class SurtidoNoEncontradoError(DominioError):
+    """No existe el surtido con el ID especificado."""
+    def __init__(self, surtido_id: str) -> None:
+        self.surtido_id = surtido_id
+        super().__init__(f"Surtido no encontrado con ID '{surtido_id}'")

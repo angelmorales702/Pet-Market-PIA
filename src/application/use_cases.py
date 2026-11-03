@@ -17,6 +17,12 @@ from uuid import UUID
 
 from src.domain.aggregates import Almacen, Devolucion, Envio, Pago, Pedido
 from src.domain.entities import LineaDevolucion, LineaPedido
+from src.domain.exceptions import (
+    DevolucionNoPermitidaError,
+    PedidoNoEncontradoError,
+    DevolucionNoEncontradoError,
+    AlmacenNoEncontradoError,
+)
 from src.domain.services import AsignacionAlmacenService, CalendarioDiasHabiles, Reloj
 from src.domain.value_objects import DireccionEntrega, Dinero, Guia, MotivoDevolucion, Sku
 from .ports import (
@@ -46,6 +52,21 @@ class ConfirmarCheckoutUseCase:
 
             # 3. Asignar surtidos (reserva stock automáticamente vía servicio de dominio)
             surtidos = self._asignador.asignar(pedido, almacenes, reservar=True)
+
+            # 3b. Validar que todas las líneas tengan stock asignado
+            # Si hay líneas pero no hay surtidos, significa que ninguna línea pudo ser asignada por stock insuficiente
+            if not surtidos and pedido.lineas:
+                from src.domain.exceptions import StockInsuficienteError
+                # Encontrar el SKU con stock insuficiente
+                sku_str = str(pedido.lineas[0].sku)
+                solicitud = sum(l.cantidad for l in pedido.lineas)
+                disponible = 0
+                for almacen in almacenes:
+                    ex = almacen.obtener_existencia(pedido.lineas[0].sku)
+                    if ex:
+                        disponible += ex.disponible_para_venta
+                raise StockInsuficienteError(sku_str, solicitud, disponible)
+
             pedido.asignar_surtidos(surtidos)
 
             # 4. Guardar pedido, surtidos y almacenes actualizados
@@ -77,7 +98,7 @@ class ProcesarPagoUseCase:
         with self._uow as uow:
             pedido = uow.pedidos.obtener_por_id(pedido_id)
             if not pedido:
-                raise ValueError(f"Pedido {pedido_id} no encontrado")
+                raise PedidoNoEncontradoError(str(pedido_id))
 
             total = pedido.total
             pago = Pago.crear(pedido_id=pedido.id, monto=total, metodo_pago=metodo_pago)
@@ -162,7 +183,7 @@ class CancelarPedidoUseCase:
         with self._uow as uow:
             pedido = uow.pedidos.obtener_por_id(pedido_id)
             if not pedido:
-                raise ValueError(f"Pedido {pedido_id} no encontrado")
+                raise PedidoNoEncontradoError(str(pedido_id))
 
             # US-009: Cancelación tardía requiere autorización
             if not pedido.puede_cancelar_cliente() and not autorizado_por_atencion:
@@ -199,7 +220,7 @@ class IniciarYEmpacarSurtidoUseCase:
         with self._uow as uow:
             pedido = uow.pedidos.obtener_por_id(pedido_id)
             if not pedido:
-                raise ValueError(f"Pedido {pedido_id} no encontrado")
+                raise PedidoNoEncontradoError(str(pedido_id))
             pedido.iniciar_preparacion()
             uow.pedidos.guardar(pedido)
             for surtido in pedido.surtidos:
@@ -213,7 +234,7 @@ class IniciarYEmpacarSurtidoUseCase:
         with self._uow as uow:
             pedido = uow.pedidos.obtener_por_id(pedido_id)
             if not pedido:
-                raise ValueError(f"Pedido {pedido_id} no encontrado")
+                raise PedidoNoEncontradoError(str(pedido_id))
             pedido.confirmar_empaque(almacen_id)
             uow.pedidos.guardar(pedido)
             for surtido in pedido.surtidos:
@@ -235,7 +256,7 @@ class DespacharPedidoUseCase:
         with self._uow as uow:
             pedido = uow.pedidos.obtener_por_id(pedido_id)
             if not pedido:
-                raise ValueError(f"Pedido {pedido_id} no encontrado")
+                raise PedidoNoEncontradoError(str(pedido_id))
 
             guia = Guia.of(codigo_guia)
             pedido.marcar_enviado(guia)
@@ -264,7 +285,7 @@ class RegistrarEntregaUseCase:
         with self._uow as uow:
             pedido = uow.pedidos.obtener_por_id(pedido_id)
             if not pedido:
-                raise ValueError(f"Pedido {pedido_id} no encontrado")
+                raise PedidoNoEncontradoError(str(pedido_id))
 
             envio = uow.envios.obtener_por_pedido(pedido_id)
             if not envio:
@@ -301,7 +322,7 @@ class SolicitarDevolucionUseCase:
         with self._uow as uow:
             pedido = uow.pedidos.obtener_por_id(pedido_id)
             if not pedido:
-                raise ValueError(f"Pedido {pedido_id} no encontrado")
+                raise PedidoNoEncontradoError(str(pedido_id))
 
             devolucion = Devolucion.solicitar(pedido_id=pedido.id, lineas=lineas, motivo=motivo)
 
@@ -332,7 +353,7 @@ class AutorizarDevolucionUseCase:
         with self._uow as uow:
             devolucion = uow.devoluciones.obtener_por_id(devolucion_id)
             if not devolucion:
-                raise ValueError(f"Devolución {devolucion_id} no encontrada")
+                raise DevolucionNoEncontradoError(str(devolucion_id))
             devolucion.autorizar()
             uow.devoluciones.guardar(devolucion)
             eventos = devolucion.clear_domain_events()
@@ -344,7 +365,7 @@ class AutorizarDevolucionUseCase:
         with self._uow as uow:
             devolucion = uow.devoluciones.obtener_por_id(devolucion_id)
             if not devolucion:
-                raise ValueError(f"Devolución {devolucion_id} no encontrada")
+                raise DevolucionNoEncontradoError(str(devolucion_id))
             devolucion.rechazar(motivo)
             uow.devoluciones.guardar(devolucion)
             eventos = devolucion.clear_domain_events()
@@ -365,7 +386,7 @@ class ProcesarReembolsoUseCase:
         with self._uow as uow:
             devolucion = uow.devoluciones.obtener_por_id(devolucion_id)
             if not devolucion:
-                raise ValueError(f"Devolución {devolucion_id} no encontrada")
+                raise DevolucionNoEncontradoError(str(devolucion_id))
 
             devolucion.confirmar_recepcion_almacen()
 
@@ -397,7 +418,7 @@ class ConsultarEstadoPedidoUseCase:
         with self._uow as uow:
             pedido = uow.pedidos.obtener_por_id(pedido_id)
             if not pedido:
-                raise ValueError(f"Pedido {pedido_id} no encontrado")
+                raise PedidoNoEncontradoError(str(pedido_id))
             envio = uow.envios.obtener_por_pedido(pedido_id)
             pago = uow.pagos.obtener_por_pedido(pedido_id)
             return {
@@ -432,7 +453,7 @@ class ConsultarDiscrepanciaInventarioUseCase:
         with self._uow as uow:
             almacen = uow.almacenes.obtener_por_id(almacen_id)
             if not almacen:
-                raise ValueError(f"Almacén {almacen_id} no encontrado")
+                raise AlmacenNoEncontradoError(str(almacen_id))
             almacen.detectar_discrepancia(sku, cantidad_fisica)
             uow.almacenes.guardar(almacen)
             eventos = almacen.clear_domain_events()

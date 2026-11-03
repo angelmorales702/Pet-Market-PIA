@@ -164,11 +164,19 @@ class TestAlmacenesAPI:
 class TestCheckoutAPI:
     """Tests de endpoints de checkout - US-004."""
 
-    def test_crear_pedido_exitoso(self, client, cliente):
-        """US-004: Crear un pedido exitosamente."""
+    def test_crear_pedido_exitoso(self, client, cliente, almacen_norte, almacen_sur, producto_test_con_stock):
+        """US-004: Crear un pedido exitosamente.
+
+        - Usa SKU del fixture producto_test_con_stock (no SKU escrito a mano)
+        - Los almacenes almacen_norte y almacen_sur deben existir en DB
+        - El precio sale del catálogo, no del cliente
+        """
+        # Usar el SKU del producto del fixture (que tiene stock en almacen_norte)
+        sku = str(producto_test_con_stock.sku)
+
         pedido_data = {
             "lineas": [
-                {"sku": "SKU-00001", "cantidad": 1, "precio_unitario": "100"}
+                {"sku": sku, "cantidad": 1}  # NO se envía precio_unitario
             ],
             "direccion": {
                 "calle": "Calle Test",
@@ -184,13 +192,21 @@ class TestCheckoutAPI:
             json=pedido_data,
             headers={"X-Cliente-Id": str(cliente.id)}
         )
-        assert response.status_code == 201
+        assert response.status_code == 201, f"Error: {response.json()}"
         data = response.json()
         assert data["estado"] == "PENDIENTE_PAGO"
         assert "id" in data
 
-    def test_crear_pedido_sin_lineas(self, client, cliente):
-        """US-004: Pedido sin líneas devuelve 422 validación."""
+        # Verificar que el total coincide con el precio del producto por cantidad
+        assert float(data["total"]) == float(producto_test_con_stock.precio.monto)
+        assert data["moneda"] == "MXN"
+
+    def test_crear_pedido_sin_lineas(self, client, cliente, almacen_norte, almacen_sur, producto_test_con_stock):
+        """US-004: Pedido sin líneas devuelve 422 validación.
+
+        - La validación ocurre ANTES de consultar almacenes (valida entrada primero)
+        - Se devuelve 422 sin ejecutar lógica del dominio
+        """
         pedido_data = {
             "lineas": [],
             "direccion": {
@@ -213,16 +229,15 @@ class TestCheckoutAPI:
         """US-004: Pedido con stock insuficiente retorna 409 conflicto.
 
         Prueba con producto existente con stock 0.
+        - Usa SKU del fixture producto_sin_stock (SKU-00003)
+        - El precio sale del catálogo, no del cliente
+        - El fixture producto_sin_stock crea su propio almacén con 0 stock
         """
-        # Primero crear almacén con el producto
-        from src.domain.aggregates import Almacen
-        from src.infrastructure.persistence.repositories import SqlAlchemyRepositorioAlmacen
-        from tests.conftest import session
+        sku = str(producto_sin_stock.sku)
 
-        # El fixture producto_sin_stock ya crea almacén y producto con 0 stock
         pedido_data = {
             "lineas": [
-                {"sku": "SKU-00003", "cantidad": 1, "precio_unitario": "100"}
+                {"sku": sku, "cantidad": 1}
             ],
             "direccion": {
                 "calle": "Calle Test",
@@ -240,13 +255,13 @@ class TestCheckoutAPI:
         )
         assert response.status_code == 409
         data = response.json()
-        assert data["codigo"] == "STOCK_INSUFICIENTE"
+        assert data["detail"]["codigo"] == "STOCK_INSUFICIENTE"
 
     def test_crear_pedido_sin_cliente(self, client):
         """US-004: Pedido sin header X-Cliente-Id devuelve 422 validación."""
         pedido_data = {
             "lineas": [
-                {"sku": "SKU-00001", "cantidad": 1, "precio_unitario": "100"}
+                {"sku": "SKU-00001", "cantidad": 1}
             ],
             "direccion": {
                 "calle": "Calle Test",
@@ -262,6 +277,39 @@ class TestCheckoutAPI:
             json=pedido_data
         )
         assert response.status_code == 422
+
+    def test_crear_pedido_precio_unitario_rechazado(self, client, cliente, almacen_norte, almacen_sur, producto_test_con_stock):
+        """US-004: Enviar precio_unitario en la línea debe ser rechazado con 422.
+
+        Según requisito de negocio: el precio sale del catálogo, NO del cliente.
+        El schema usa `extra='forbid'` para rechazar campos inesperados.
+        """
+        sku = str(producto_test_con_stock.sku)
+
+        # Enviar precio_unitario en la línea (debe ser rechazado)
+        pedido_data = {
+            "lineas": [
+                {"sku": sku, "cantidad": 1, "precio_unitario": "999.99"}  # precio_unitario NO permitido
+            ],
+            "direccion": {
+                "calle": "Calle Test",
+                "numero": "123",
+                "colonia": "Centro",
+                "ciudad": "CDMX",
+                "codigo_postal": "01001"
+            }
+        }
+
+        response = client.post(
+            "/pedidos",
+            json=pedido_data,
+            headers={"X-Cliente-Id": str(cliente.id)}
+        )
+        # Pydantic con extra='forbid' rechaza campos inesperados con 422
+        assert response.status_code == 422
+        data = response.json()
+        # Verificar que el error sea de validación
+        assert "detail" in data or "codigo" in str(data).lower()
 
 
 # =============================================================================
@@ -521,7 +569,7 @@ class TestConsultaPedidoAPI:
         response = client.get(f"/pedidos/{uuid4()}")
         assert response.status_code == 404
         data = response.json()
-        assert data["codigo"] == "PEDIDO_NO_ENCONTRADO"
+        assert data["detail"]["codigo"] == "PEDIDO_NO_ENCONTRADO"
 
     def test_listar_pedidos_cliente(self, client, cliente, pedido_pagado):
         """US-012: Listar pedidos de un cliente (200)."""
@@ -567,7 +615,7 @@ class TestDevolucionAPI:
         response = client.post("/devoluciones", json=devolucion_data)
         assert response.status_code == 409
         data = response.json()
-        assert data["codigo"] == "DEVOLUCION_NO_PERMITIDA"
+        assert data["detail"]["codigo"] == "DEVOLUCION_NO_PERMITIDA"
 
     def test_autorizar_devolucion_exitosa(self, client, pedido_entregado):
         """US-014: Autorizar devolución exitosamente (200)."""
@@ -657,8 +705,8 @@ class TestSKUValidation:
         response = client.get("/productos/SKU-ABCDEF")
         assert response.status_code == 422
         data = response.json()
-        assert "codigo" in data
-        assert data["codigo"] == "SKU_INVALIDO"
+        assert "codigo" in data["detail"]
+        assert data["detail"]["codigo"] == "SKU_INVALIDO"
 
     def test_producto_sku_sin_guion(self, client):
         """Test que SKU sin guion devuelve error 422."""

@@ -22,8 +22,11 @@ class Sku(str):
         if not value or not isinstance(value, str):
             raise ValueError("SKU no puede ser vacío")
         normalized = value.strip().upper()
-        if not normalized.startswith("SKU-") or not normalized[4:].isdigit():
+        if not normalized.startswith("SKU-"):
             raise ValueError(f"SKU '{value}' no cumple el formato SKU-XXXXX")
+        digits_part = normalized[4:]
+        if not digits_part.isdigit() or len(digits_part) != 5:
+            raise ValueError(f"SKU '{value}' no cumple el formato SKU-XXXXX (debe tener exactamente 5 dígitos)")
         return cls(normalized)
 
 

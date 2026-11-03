@@ -301,6 +301,7 @@ def producto_test_2(session):
 
 def _crear_pedido_con_stock(session, cliente, almacen, producto, cantidad, sku):
     """Helper: crea pedido con stock reservado usando el flujo del dominio."""
+    from src.domain.aggregates import Pedido
     from src.domain.entities import LineaPedido
     from src.domain.value_objects import DireccionEntrega, Dinero, Sku
     from src.domain.services import AsignacionAlmacenService
@@ -319,11 +320,14 @@ def _crear_pedido_con_stock(session, cliente, almacen, producto, cantidad, sku):
     surtidos = asignador.asignar(pedido, [almacen], reservar=True)
     pedido.asignar_surtidos(surtidos)
 
-    SqlAlchemyRepositorioPedido(session).guardar(pedido)
-    SqlAlchemyRepositorioAlmacen(session).guardar(almacen)
+    repo_pedido = SqlAlchemyRepositorioPedido(session)
+    repo_almacen = SqlAlchemyRepositorioAlmacen(session)
+    repo_pedido.guardar(pedido)
+    repo_almacen.guardar(almacen)
     session.commit()
 
-    return pedido
+    # Recargar el pedido desde la base de datos para asegurar que los surtidos están sincronizados
+    return repo_pedido.obtener_por_id(pedido.id)
 
 
 @pytest.fixture
@@ -357,8 +361,13 @@ def pedido_pendiente_pago(session, cliente, almacen_norte, producto_test_2):
     """Fixture: Pedido en estado PENDIENTE_PAGO con stock reservado.
 
     US-004: Checkout confirmado, stock reservado por 15 min, esperando pago.
+    Nota: Este fixture asume que producto_test_2 tiene stock en almacen_norte.
     """
-    return _crear_pedido_con_stock(session, cliente, almacen_norte, producto_test_2, 2, "SKU-00002")
+    pedido = _crear_pedido_con_stock(session, cliente, almacen_norte, producto_test_2, 2, "SKU-00002")
+    # Verificar que el surtido está en el almacén correcto
+    assert len(pedido.surtidos) >= 1, "Pedido debe tener al menos un surtido"
+    assert pedido.surtidos[0].almacen_id == almacen_norte.id, "Surtido debe estar en almacén norte"
+    return pedido
 
 
 @pytest.fixture
@@ -386,9 +395,21 @@ def pedido_pagado(session, pedido_pendiente_pago, almacen_norte):
     )
     session.commit()
 
-    # Recargar pedido actualizado
+    # Recargar pedido actualizado con surtidos explícitamente
     from src.infrastructure.persistence.repositories import SqlAlchemyRepositorioPedido
-    return SqlAlchemyRepositorioPedido(session).obtener_por_id(pedido_pendiente_pago.id)
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+    from src.infrastructure.persistence.models import PedidoModel, SurtidoModel, LineaSurtidoModel
+
+    stmt = select(PedidoModel).where(
+        PedidoModel.id == pedido_pendiente_pago.id
+    ).options(
+        selectinload(PedidoModel.surtidos).selectinload(SurtidoModel.lineas),
+    )
+    model = session.execute(stmt).scalar_one_or_none()
+
+    from src.infrastructure.persistence.repositories import _map_pedido_to_domain
+    return _map_pedido_to_domain(model) if model else None
 
 
 @pytest.fixture
@@ -409,30 +430,56 @@ def pedido_en_preparacion(session, pedido_pagado):
     pedido = use_case.iniciar_preparacion(pedido_pagado.id)
     session.commit()
 
+    # Recargar explícitamente con los surtidos
     from src.infrastructure.persistence.repositories import SqlAlchemyRepositorioPedido
-    return SqlAlchemyRepositorioPedido(session).obtener_por_id(pedido.id)
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+    from src.infrastructure.persistence.models import PedidoModel, SurtidoModel, LineaSurtidoModel
+
+    stmt = select(PedidoModel).where(PedidoModel.id == pedido.id).options(
+        selectinload(PedidoModel.surtidos).selectinload(SurtidoModel.lineas),
+    )
+    model = session.execute(stmt).scalar_one_or_none()
+
+    from src.infrastructure.persistence.repositories import _map_pedido_to_domain
+    return _map_pedido_to_domain(model) if model else None
 
 
 @pytest.fixture
-def pedido_empacado(session, pedido_en_preparacion, almacen_norte):
+def pedido_empacado(session, pedido_en_preparacion):
     """Fixture: Pedido en estado EMPACADO (TODOS los surtidos empacados).
 
     US-007: Todos los surtidos están empacados, listo para envío.
+    Usa el almacén del primer surtido del pedido, no asume un almacén fijo.
     """
     from src.application.in_memory import InMemoryEventPublisher
     from src.application.use_cases import IniciarYEmpacarSurtidoUseCase
     from src.infrastructure.persistence.uow import SqlAlchemyUnitOfWork
     from sqlalchemy.orm import sessionmaker
 
+    # Obtener el almacén del primer surtido del pedido
+    if not pedido_en_preparacion.surtidos:
+        raise ValueError("pedido_en_preparacion no tiene surtidos")
+    almacen_del_surtido = pedido_en_preparacion.surtidos[0].almacen_id
+
     publisher = InMemoryEventPublisher()
     uow = SqlAlchemyUnitOfWork(sessionmaker(bind=session.bind), publisher, existing_session=session)
     use_case = IniciarYEmpacarSurtidoUseCase(uow, publisher)
 
-    pedido = use_case.confirmar_empaque_surtido(pedido_en_preparacion.id, almacen_norte.id)
+    pedido = use_case.confirmar_empaque_surtido(pedido_en_preparacion.id, almacen_del_surtido)
     session.commit()
 
     from src.infrastructure.persistence.repositories import SqlAlchemyRepositorioPedido
-    return SqlAlchemyRepositorioPedido(session).obtener_por_id(pedido.id)
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+    from src.infrastructure.persistence.models import PedidoModel, SurtidoModel, LineaSurtidoModel
+
+    stmt = select(PedidoModel).where(PedidoModel.id == pedido.id).options(
+        selectinload(PedidoModel.surtidos).selectinload(SurtidoModel.lineas),
+    )
+    model = session.execute(stmt).scalar_one_or_none()
+    from src.infrastructure.persistence.repositories import _map_pedido_to_domain
+    return _map_pedido_to_domain(model) if model else None
 
 
 @pytest.fixture
@@ -453,8 +500,19 @@ def pedido_enviado(session, pedido_empacado):
     envio = use_case.ejecutar(pedido_empacado.id, "GUIA-ENVIO-00001")
     session.commit()
 
+    # Recargar explícitamente con los surtidos
     from src.infrastructure.persistence.repositories import SqlAlchemyRepositorioPedido
-    return SqlAlchemyRepositorioPedido(session).obtener_por_id(pedido_empacado.id)
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+    from src.infrastructure.persistence.models import PedidoModel, SurtidoModel, LineaSurtidoModel
+
+    stmt = select(PedidoModel).where(PedidoModel.id == pedido_empacado.id).options(
+        selectinload(PedidoModel.surtidos).selectinload(SurtidoModel.lineas),
+    )
+    model = session.execute(stmt).scalar_one_or_none()
+
+    from src.infrastructure.persistence.repositories import _map_pedido_to_domain
+    return _map_pedido_to_domain(model) if model else None
 
 
 @pytest.fixture
@@ -475,8 +533,18 @@ def pedido_entregado(session, pedido_enviado):
     envio = use_case.ejecutar(pedido_enviado.id, exitoso=True, observaciones="Entregado en puerta")
     session.commit()
 
-    from src.infrastructure.persistence.repositories import SqlAlchemyRepositorioPedido
-    return SqlAlchemyRepositorioPedido(session).obtener_por_id(pedido_enviado.id)
+    # Recargar explícitamente con los surtidos
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+    from src.infrastructure.persistence.models import PedidoModel, SurtidoModel, LineaSurtidoModel
+
+    stmt = select(PedidoModel).where(PedidoModel.id == pedido_enviado.id).options(
+        selectinload(PedidoModel.surtidos).selectinload(SurtidoModel.lineas),
+    )
+    model = session.execute(stmt).scalar_one_or_none()
+
+    from src.infrastructure.persistence.repositories import _map_pedido_to_domain
+    return _map_pedido_to_domain(model) if model else None
 
 
 @pytest.fixture

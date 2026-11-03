@@ -16,7 +16,7 @@ from uuid import UUID, uuid4
 from fastapi import FastAPI, Depends, HTTPException, Header, status, Body
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, ValidationError
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -32,6 +32,10 @@ from src.domain.exceptions import (
     CancelacionNoPermitidaError,
     DevolucionNoPermitidaError,
     StockInsuficienteError,
+    PedidoNoEncontradoError,
+    DevolucionNoEncontradoError,
+    AlmacenNoEncontradoError,
+    SurtidoNoEncontradoError,
 )
 from src.application.ports import (
     UnitOfWork, PasarelaPago, ResultadoPago, PublicadorEventos
@@ -114,55 +118,161 @@ app.add_middleware(
 # Exception Handlers
 # =============================================================================
 
-def translate_error_response(exc: Exception) -> JSONResponse:
-    """Translate domain exceptions to HTTP error responses."""
-    if isinstance(exc, TransicionEstadoInvalidaException):
-        return JSONResponse(
-            status_code=status.HTTP_409_CONFLICT,
-            content={"codigo": "ESTADO_INVALIDO", "mensaje": f"Transición de estado inválida: {exc.estado_actual} → {exc.estado_destino}"},
-        )
-    elif isinstance(exc, CancelacionNoPermitidaError):
-        return JSONResponse(
-            status_code=status.HTTP_409_CONFLICT,
-            content={"codigo": "CANCELACION_NO_PERMITIDA", "mensaje": f"No se puede cancelar un pedido en estado {exc.estado}"},
-        )
-    elif isinstance(exc, DevolucionNoPermitidaError):
-        return JSONResponse(
-            status_code=status.HTTP_409_CONFLICT,
-            content={"codigo": "DEVOLUCION_NO_PERMITIDA", "mensaje": str(exc)},
-        )
-    elif isinstance(exc, StockInsuficienteError):
-        return JSONResponse(
-            status_code=status.HTTP_409_CONFLICT,
-            content={"codigo": "STOCK_INSUFICIENTE", "mensaje": str(exc)},
-        )
-    elif isinstance(exc, (KeyError, ValueError)) and ("SKU" in str(exc) or "sku" in str(exc) or "SKU_INVALIDO" in str(exc)):
+# Mapeo centralizado de excepciones del dominio a respuestas HTTP
+# Formato de respuesta: {"detail": {"codigo": "...", "mensaje": "..."}}
+EXCEPTION_HANDLERS = [
+    # 409 Conflict - Errores de estado y negocio
+    (TransicionEstadoInvalidaException, status.HTTP_409_CONFLICT, "ESTADO_INVALIDO"),
+    (CancelacionNoPermitidaError, status.HTTP_409_CONFLICT, "CANCELACION_NO_PERMITIDA"),
+    (DevolucionNoPermitidaError, status.HTTP_409_CONFLICT, "DEVOLUCION_NO_PERMITIDA"),
+    (StockInsuficienteError, status.HTTP_409_CONFLICT, "STOCK_INSUFICIENTE"),
+    # 404 Not Found - Recursos no encontrados
+    (PedidoNoEncontradoError, status.HTTP_404_NOT_FOUND, "PEDIDO_NO_ENCONTRADO"),
+    (DevolucionNoEncontradoError, status.HTTP_404_NOT_FOUND, "DEVOLUCION_NO_ENCONTRADO"),
+    (AlmacenNoEncontradoError, status.HTTP_404_NOT_FOUND, "ALMACEN_NO_ENCONTRADO"),
+    (SurtidoNoEncontradoError, status.HTTP_404_NOT_FOUND, "SURTIDO_NO_ENCONTRADO"),
+]
+
+
+def _build_error_detail(codigo: str, mensaje: str) -> dict:
+    """Construye el detalle de error en el formato esperado."""
+    return {"detail": {"codigo": codigo, "mensaje": mensaje}}
+
+
+def _get_error_handler(exc: Exception):
+    """Obtiene el código HTTP, código de error y mensaje para una excepción."""
+    for exc_class, http_code, error_code in EXCEPTION_HANDLERS:
+        if isinstance(exc, exc_class):
+            # Extraer el identificador relevante según el tipo de excepción
+            if hasattr(exc, 'pedido_id'):
+                mensaje = f"Pedido {exc.pedido_id} no encontrado"
+            elif hasattr(exc, 'devolucion_id'):
+                mensaje = f"Devolución {exc.devolucion_id} no encontrada"
+            elif hasattr(exc, 'almacen_id'):
+                mensaje = f"Almacén {exc.almacen_id} no encontrado"
+            elif hasattr(exc, 'surtido_id'):
+                mensaje = f"Surtido {exc.surtido_id} no encontrado"
+            elif hasattr(exc, 'estado_actual') and hasattr(exc, 'estado_destino'):
+                mensaje = f"Transición de estado inválida: {exc.estado_actual} → {exc.estado_destino}"
+            elif hasattr(exc, 'estado'):
+                # CancelacionNoPermitidaError y DevolucionNoPermitidaError
+                mensaje = f"No se puede cancelar un pedido en estado {exc.estado}"
+            else:
+                mensaje = str(exc)
+            return http_code, error_code, mensaje
+    return None
+
+
+@app.exception_handler(TransicionEstadoInvalidaException)
+async def handle_transicion_estado(request, exc: TransicionEstadoInvalidaException):
+    """Handle TransicionEstadoInvalidaException with 409 Conflict."""
+    http_code, error_code, mensaje = _get_error_handler(exc)
+    return JSONResponse(status_code=http_code, content=_build_error_detail(error_code, mensaje))
+
+
+@app.exception_handler(CancelacionNoPermitidaError)
+async def handle_cancelacion_no_permitida(request, exc: CancelacionNoPermitidaError):
+    """Handle CancelacionNoPermitidaError with 409 Conflict."""
+    http_code, error_code, mensaje = _get_error_handler(exc)
+    return JSONResponse(status_code=http_code, content=_build_error_detail(error_code, mensaje))
+
+
+@app.exception_handler(DevolucionNoPermitidaError)
+async def handle_devolucion_no_permitida(request, exc: DevolucionNoPermitidaError):
+    """Handle DevolucionNoPermitidaError with 409 Conflict."""
+    http_code, error_code, mensaje = _get_error_handler(exc)
+    return JSONResponse(status_code=http_code, content=_build_error_detail(error_code, mensaje))
+
+
+@app.exception_handler(StockInsuficienteError)
+async def handle_stock_insuficiente(request, exc: StockInsuficienteError):
+    """Handle StockInsuficienteError with 409 Conflict."""
+    http_code, error_code, mensaje = _get_error_handler(exc)
+    return JSONResponse(status_code=http_code, content=_build_error_detail(error_code, mensaje))
+
+
+@app.exception_handler(PedidoNoEncontradoError)
+async def handle_pedido_no_encontrado(request, exc: PedidoNoEncontradoError):
+    """Handle PedidoNoEncontradoError with 404 Not Found."""
+    http_code, error_code, mensaje = _get_error_handler(exc)
+    return JSONResponse(status_code=http_code, content=_build_error_detail(error_code, mensaje))
+
+
+@app.exception_handler(DevolucionNoEncontradoError)
+async def handle_devolucion_no_encontrado(request, exc: DevolucionNoEncontradoError):
+    """Handle DevolucionNoEncontradoError with 404 Not Found."""
+    http_code, error_code, mensaje = _get_error_handler(exc)
+    return JSONResponse(status_code=http_code, content=_build_error_detail(error_code, mensaje))
+
+
+@app.exception_handler(AlmacenNoEncontradoError)
+async def handle_almacen_no_encontrado(request, exc: AlmacenNoEncontradoError):
+    """Handle AlmacenNoEncontradoError with 404 Not Found."""
+    http_code, error_code, mensaje = _get_error_handler(exc)
+    return JSONResponse(status_code=http_code, content=_build_error_detail(error_code, mensaje))
+
+
+@app.exception_handler(SurtidoNoEncontradoError)
+async def handle_surtido_no_encontrado(request, exc: SurtidoNoEncontradoError):
+    """Handle SurtidoNoEncontradoError with 404 Not Found."""
+    http_code, error_code, mensaje = _get_error_handler(exc)
+    return JSONResponse(status_code=http_code, content=_build_error_detail(error_code, mensaje))
+
+
+@app.exception_handler(ValidationError)
+async def handle_validation_error(request, exc: ValidationError):
+    """Handle Pydantic validation errors with 422 Unprocessable Entity."""
+    # Extraer el primer error de validación
+    errors = exc.errors()
+    if errors:
+        first_error = errors[0]
+        loc = ".".join(str(l) for l in first_error.get("loc", []))
+        msg = first_error.get("msg", "Error de validación")
+        error_type = first_error.get("type", "value_error")
+
+        # Mapear tipos de error a códigos más específicos
+        if "sku" in loc.lower() or error_type == "value_error":
+            codigo = "SKU_INVALIDO"
+        else:
+            codigo = "DATOS_INVALIDOS"
+
         return JSONResponse(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            content={"codigo": "SKU_INVALIDO", "mensaje": str(exc)},
+            content=_build_error_detail(codigo, msg)
         )
-    elif isinstance(exc, ValueError):
-        return JSONResponse(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            content={"codigo": "DATOS_INVALIDOS", "mensaje": str(exc)},
-        )
-    elif isinstance(exc, FileNotFoundError):
-        return JSONResponse(
-            status_code=status.HTTP_404_NOT_FOUND,
-            content={"codigo": "NO_ENCONTRADO", "mensaje": str(exc)},
-        )
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content=_build_error_detail("DATOS_INVALIDOS", "Error de validación")
+    )
+
+
+@app.exception_handler(HTTPException)
+async def handle_http_exception(request, exc: HTTPException):
+    """Handle FastAPI HTTPException with custom error format."""
+    if exc.detail and isinstance(exc.detail, dict):
+        # Ya está en el formato correcto, envolver en "detail"
+        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+    elif isinstance(exc.detail, str):
+        # String simple - convertir a formato estructurado
+        if exc.status_code == 404:
+            return JSONResponse(status_code=404, content=_build_error_detail("NO_ENCONTRADO", exc.detail))
+        elif exc.status_code == 409:
+            return JSONResponse(status_code=409, content=_build_error_detail("CONFLICTO", exc.detail))
+        else:
+            return JSONResponse(status_code=exc.status_code, content=_build_error_detail("ERROR", exc.detail))
     else:
-        # Nunca devolver 500 en producción: mapear a 500 solo para excepciones inesperadas
-        return JSONResponse(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content={"codigo": "ERROR_INTERNO", "mensaje": str(exc)},
-        )
+        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
 
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
-    """Translate all exceptions to HTTP error responses."""
-    return translate_error_response(exc)
+    """Translate unexpected exceptions to HTTP 500 error responses."""
+    # Log del error (en producción se usaría logging)
+    # Nunca devolver 500 con información sensible
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content=_build_error_detail("ERROR_INTERNO", "Error interno del servidor")
+    )
 
 
 # =============================================================================
@@ -185,13 +295,23 @@ class DireccionRequest(BaseModel):
 
 
 class LineaPedidoRequest(BaseModel):
+    """Request for a line item in a pedido.
+
+    El precio_unitario NO se acepta del cliente: proviene del catálogo de productos.
+    """
+    model_config = {"extra": "forbid"}  # Rechaza campos inesperados como precio_unitario del cliente
+
     sku: str
-    cantidad: int = Field(..., gt=0)
-    precio_unitario: Decimal = Field(..., gt=0)
+    cantidad: int = Field(..., gt=0, description="Cantidad de unidades a pedir")
 
 
 class PedidoCreado(BaseModel):
-    lineas: list[LineaPedidoRequest]
+    """Request body para crear un pedido.
+
+    - lineas: requiere al menos 1 elemento (validación Pydantic)
+    - precio_unitario en cada línea es RECHAZADO (se busca en el catálogo)
+    """
+    lineas: list[LineaPedidoRequest] = Field(..., min_length=1, description="Al menos una línea requerida")
     direccion: DireccionRequest
 
 
@@ -524,6 +644,7 @@ async def obtener_inventario_almacen(
 
 
 # --- Checkout - Crear Pedido - US-004 ---
+# NOTA: El precio_unitario NO se acepta del cliente. Se busca en el catálogo.
 
 @app.post("/pedidos", response_model=PedidoResponse, status_code=status.HTTP_201_CREATED)
 async def crear_pedido(
@@ -531,16 +652,52 @@ async def crear_pedido(
     cliente_id: str = Header(..., alias="X-Cliente-Id"),
     uow: SqlAlchemyUnitOfWork = Depends(get_uow),
 ):
-    """US-004: Confirmar checkout y crear pedido."""
+    """US-004: Confirmar checkout y crear pedido.
+
+    El precio se obtiene del catálogo (producto por SKU), NO del cliente.
+    El total del pedido = sum(precio_producto * cantidad_cada_linea).
+    """
     with uow:
-        lineas = [
-            LineaPedido(
-                sku=Sku.of(item.sku),
-                cantidad=item.cantidad,
-                precio_unitario=Dinero(item.precio_unitario, "MXN"),
+        lineas = []
+        for item in pedido_data.lineas:
+            # Validar SKU y obtener producto del catálogo
+            try:
+                sku_vo = Sku.of(item.sku)
+            except ValueError as e:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail={"codigo": "SKU_INVALIDO", "mensaje": str(e)}
+                )
+
+            # Obtener producto del catálogo para obtener el precio
+            producto = uow.productos.obtener_por_sku(sku_vo)
+            if not producto:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail={
+                        "codigo": "PRODUCTO_NO_ENCONTRADO",
+                        "mensaje": f"Producto con SKU {item.sku} no encontrado en el catálogo"
+                    }
+                )
+
+            # Verificar que el SKU sea activo
+            if not producto.activo:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail={
+                        "codigo": "PRODUCTO_INACTIVO",
+                        "mensaje": f"Producto con SKU {item.sku} está inactivo"
+                    }
+                )
+
+            # Crear línea con PRECIO DEL CATÁLOGO (no del cliente)
+            lineas.append(
+                LineaPedido(
+                    sku=sku_vo,
+                    cantidad=item.cantidad,
+                    precio_unitario=producto.precio,
+                )
             )
-            for item in pedido_data.lineas
-        ]
 
         direccion = DireccionEntrega(
             calle=pedido_data.direccion.calle,
@@ -618,7 +775,7 @@ async def iniciar_preparacion(
 @app.post("/pedidos/{pedido_id}/confirmar-empaque")
 async def confirmar_empaque(
     pedido_id: UUID,
-    almacen_id: UUID = Body(...),
+    almacen_id: UUID = Body(..., embed=True),
     uow: SqlAlchemyUnitOfWork = Depends(get_uow),
 ):
     """US-007: Confirmar empaquetado de un surtido."""

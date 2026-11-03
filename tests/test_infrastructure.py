@@ -423,5 +423,116 @@ def test_repositorio_almacen_guardar_y_existencias(session):
     assert obtenido.existencias["SKU-00004"].cantidad_disponible == 100
 
 
+def test_repositorio_pedido_persistencia_surtidos_2_almacenes(session):
+    """Test de ida y vuelta: Pedido con 2 surtidos (uno por almacén).
+
+    Este test verifica que los surtidos se persistan correctamente cuando
+    un pedido tiene surtidos en múltiples almacenes.
+
+    Regla de AsignacionAlmacenService:
+    - Para cada línea, busca el almacén con stock suficiente
+    - Si hay múltiples almacenes con stock, elige el que tiene MÁS stock
+    - Todas las líneas del mismo SKU van a un solo surtido (un almacén)
+    """
+    # 1. Crear datos base
+    repo_cliente = SqlAlchemyRepositorioCliente(session)
+    repo_almacen1 = SqlAlchemyRepositorioAlmacen(session)
+    repo_almacen2 = SqlAlchemyRepositorioAlmacen(session)
+    repo_producto = SqlAlchemyRepositorioProducto(session)
+    repo_pedido = SqlAlchemyRepositorioPedido(session)
+
+    cliente = Cliente.crear("Test Surtido", "surtido@test.com", "555-7777")
+    repo_cliente.guardar(cliente)
+    session.commit()
+
+    almacen1 = Almacen.crear("Almacen Norte", "CDMX")
+    almacen2 = Almacen.crear("Almacen Sur", "Guadalajara")
+    repo_almacen1.guardar(almacen1)
+    repo_almacen2.guardar(almacen2)
+    session.commit()
+
+    # Producto A con stock SOLO en almacen1
+    producto_a = Producto.crear(
+        sku=Sku.of("SKU-00021"),
+        nombre="Producto A",
+        descripcion="Producto A para test",
+        precio=Dinero(100, "MXN"),
+        categoria="Test"
+    )
+    repo_producto.guardar(producto_a)
+    session.commit()
+
+    # Producto B con stock SOLO en almacen2
+    producto_b = Producto.crear(
+        sku=Sku.of("SKU-00022"),
+        nombre="Producto B",
+        descripcion="Producto B para test",
+        precio=Dinero(100, "MXN"),
+        categoria="Test"
+    )
+    repo_producto.guardar(producto_b)
+    session.commit()
+
+    # Agregar existencias: A SOLO en almacen1, B SOLO en almacen2
+    almacen1 = repo_almacen1.obtener_por_id(almacen1.id)
+    almacen1.agregar_existencia(producto_a.id, producto_a.sku, 50)
+    repo_almacen1.guardar(almacen1)
+    session.commit()
+
+    almacen2 = repo_almacen2.obtener_por_id(almacen2.id)
+    almacen2.agregar_existencia(producto_b.id, producto_b.sku, 30)
+    repo_almacen2.guardar(almacen2)
+    session.commit()
+
+    # 2. Crear pedido con 2 líneas de SKU distintos
+    linea_a = LineaPedido(sku=Sku.of("SKU-00021"), cantidad=2, precio_unitario=Dinero(100, "MXN"))
+    linea_b = LineaPedido(sku=Sku.of("SKU-00022"), cantidad=1, precio_unitario=Dinero(100, "MXN"))
+    direccion = DireccionEntrega("Calle Test", "1", "Centro", "CDMX", "01000")
+    pedido = Pedido.crear(cliente_id=cliente.id, lineas=[linea_a, linea_b], direccion_entrega=direccion)
+
+    # Usar el servicio de asignación real
+    from src.domain.services import AsignacionAlmacenService
+    asignador = AsignacionAlmacenService()
+    surtidos = asignador.asignar(pedido, [almacen1, almacen2], reservar=True)
+    pedido.asignar_surtidos(surtidos)
+
+    # Verificar asignación inicial: debe haber 2 surtidos con almacenes distintos
+    assert len(pedido.surtidos) == 2, f"Esperado 2 surtidos, obtuve {len(pedido.surtidos)}"
+    almacenes_asignados = [s.almacen_id for s in pedido.surtidos]
+    print(f"DEBUG: almacenes esperados: {almacen1.id}, {almacen2.id}")
+    print(f"DEBUG: almacenes asignados: {almacenes_asignados}")
+    assert almacen1.id in almacenes_asignados, f"Almacen1 ({almacen1.id}) no asignado"
+    assert almacen2.id in almacenes_asignados, f"Almacen2 ({almacen2.id}) no asignado"
+
+    for s in pedido.surtidos:
+        print(f"DEBUG: surtido id={s.id}, almacen_id={s.almacen_id}, estado={s.estado.value}")
+
+    # 3. Guardar el pedido
+    repo_pedido.guardar(pedido)
+    session.commit()
+
+    # 4. Recargar y verificar (test de persistencia)
+    obtenido = repo_pedido.obtener_por_id(pedido.id)
+    assert obtenido is not None, "Pedido no recuperado"
+    assert len(obtenido.surtidos) == 2, f"Esperado 2 surtidos recargados, obtuve {len(obtenido.surtidos)}"
+
+    # Verificar IDs y almacenes coinciden exactamente
+    surtidos_original = sorted(pedido.surtidos, key=lambda s: s.id)
+    surtidos_recargados = sorted(obtenido.surtidos, key=lambda s: s.id)
+
+    for orig, recargado in zip(surtidos_original, surtidos_recargados):
+        assert orig.id == recargado.id, f"ID de surtido no coincide: {orig.id} vs {recargado.id}"
+        assert orig.almacen_id == recargado.almacen_id, f"Almacen_id no coincide"
+        assert orig.estado == recargado.estado, f"Estado no coincide: {orig.estado} vs {recargado.estado}"
+
+    # Verificar líneas
+    total_lineas = sum(len(s.lineas) for s in obtenido.surtidos)
+    assert total_lineas == 2, f"Esperado 2 líneas totales, obtuve {total_lineas}"
+
+    # Verificar que los estados son PENDIENTE
+    for s in obtenido.surtidos:
+        assert s.estado == EstadoSurtido.PENDIENTE, f"Estado inesperado: {s.estado}"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-cov=src", "--cov-fail-under=80"])

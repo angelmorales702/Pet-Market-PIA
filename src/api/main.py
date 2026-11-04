@@ -8,6 +8,7 @@ Rutas en español y en plural según convención del proyecto.
 from __future__ import annotations
 
 import os
+import logging
 from datetime import datetime
 from decimal import Decimal
 from typing import Optional
@@ -19,6 +20,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator, ValidationError
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+
+# Configure logging for error tracking
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 from src.domain.aggregates import (
     Almacen, Cliente, Devolucion, Envio, Pago, Pedido, Producto
@@ -277,7 +285,8 @@ async def handle_http_exception(request, exc: HTTPException):
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
     """Translate unexpected exceptions to HTTP 500 error responses."""
-    # Log del error (en producción se usaría logging)
+    # Log del error completo para diagnóstico
+    logger.exception("Error interno del servidor en %s %s: %s", request.method, request.url.path, str(exc))
     # Nunca devolver 500 con información sensible
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

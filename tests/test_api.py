@@ -595,7 +595,7 @@ class TestDevolucionAPI:
             "pedido_id": str(pedido_entregado.id),
             "lineas": [{"sku": "SKU-00002", "cantidad": 1}],
             "motivo": "Producto defectuoso",
-            "fecha_entrega": "2024-01-15T10:00:00"
+            "fecha_entrega": datetime.now().isoformat(timespec="seconds")
         }
 
         response = client.post("/devoluciones", json=devolucion_data)
@@ -609,7 +609,7 @@ class TestDevolucionAPI:
             "pedido_id": str(pedido_pagado.id),
             "lineas": [{"sku": "SKU-00002", "cantidad": 1}],
             "motivo": "Cambio de opinión",
-            "fecha_entrega": "2024-01-15T10:00:00"
+            "fecha_entrega": datetime.now().isoformat(timespec="seconds")
         }
 
         response = client.post("/devoluciones", json=devolucion_data)
@@ -624,7 +624,7 @@ class TestDevolucionAPI:
             "pedido_id": str(pedido_entregado.id),
             "lineas": [{"sku": "SKU-00002", "cantidad": 1}],
             "motivo": "Producto defectuoso",
-            "fecha_entrega": "2024-01-15T10:00:00"
+            "fecha_entrega": datetime.now().isoformat(timespec="seconds")
         }
 
         solicitar_response = client.post("/devoluciones", json=devolucion_data)
@@ -650,7 +650,7 @@ class TestDevolucionAPI:
             "pedido_id": str(pedido_entregado.id),
             "lineas": [{"sku": "SKU-00002", "cantidad": 1}],
             "motivo": "Producto defectuoso",
-            "fecha_entrega": "2024-01-15T10:00:00"
+            "fecha_entrega": datetime.now().isoformat(timespec="seconds")
         }
 
         solicitar_response = client.post("/devoluciones", json=devolucion_data)

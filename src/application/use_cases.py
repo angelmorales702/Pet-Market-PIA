@@ -190,20 +190,34 @@ class CancelarPedidoUseCase:
                 from src.domain.exceptions import CancelacionNoPermitidaError
                 raise CancelacionNoPermitidaError(pedido.estado.value)
 
+            # Liberar o reponer stock según el estado del pedido
+            # NOTA: verificar el estado ANTES de cancelar, ya que cancelar() cambia el estado a CANCELADO
+            # Una vez que el pedido está PAGADO, el stock se confirmó (descontó cantidad_disponible)
+            # y no queda reserva que liberar - hay que reponer el stock.
+            # En CREADO o PENDIENTE_PAGO solo hay reserva que liberar.
+            from src.domain.state_machine import EstadoPedido
+            estado_actual = pedido.estado
+            stock_confirmado = estado_actual in (
+                EstadoPedido.PAGADO,
+                EstadoPedido.EN_PREPARACION,
+                EstadoPedido.EMPACADO,
+                EstadoPedido.ENVIADO,
+                EstadoPedido.ENTREGADO,
+                EstadoPedido.ENTREGA_FALLIDA,
+            )
+
             pedido.cancelar(motivo)
 
-            # Liberar o reponer stock según el estado del pedido
-            from src.domain.state_machine import EstadoPedido
             almacenes = uow.almacenes.obtener_todos()
             for surtido in pedido.surtidos:
                 almacen = next((a for a in almacenes if a.id == surtido.almacen_id), None)
                 if almacen:
                     for linea in surtido.lineas:
-                        # Si el pedido está PAGADO, el stock se confirmó como venta y hay que reponer
-                        # Si el pedido está en CREADO o PENDIENTE_PAGO, solo hay reserva que liberar
-                        if pedido.estado == EstadoPedido.PAGADO:
+                        if stock_confirmado:
+                            # Stock fue confirmado como venta -hay que reponer
                             almacen.reponer(linea.sku, linea.cantidad)
                         else:
+                            # Stock solo estaba reservado -hay que liberar la reserva
                             almacen.liberar_reserva(linea.sku, linea.cantidad)
                     uow.almacenes.guardar(almacen)
 

@@ -420,6 +420,15 @@ class Almacen(AggregateRoot):
         if ex:
             ex.liberar_reserva(cantidad)
 
+    def reponer(self, sku: Sku, cantidad: int) -> None:
+        """Devuelve al stock disponible lo que se confirmó como venta.
+
+        US-008, US-009: Se usa cuando un pedido PAGADO se cancela.
+        """
+        ex = self.obtener_existencia(sku)
+        if ex:
+            ex.reponer(cantidad)
+
     def confirmar_venta(self, sku: Sku, cantidad: int) -> None:
         """Confirma la venta (pago aprobado -> descuenta stock real)."""
         ex = self.obtener_existencia(sku)

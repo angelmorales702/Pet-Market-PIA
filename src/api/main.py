@@ -76,6 +76,16 @@ def get_session():
         session.close()
 
 
+def get_event_publisher():
+    """Dependency that provides an event publisher."""
+    return InMemoryEventPublisher()
+
+
+def get_pasarela_pago():
+    """Dependency that provides a payment gateway."""
+    return FakePasarelaPago()
+
+
 def get_uow(session=Depends(get_session)):
     """Dependency that provides a Unit of Work."""
     publisher = InMemoryEventPublisher()
@@ -651,6 +661,7 @@ async def crear_pedido(
     pedido_data: PedidoCreado = Body(...),
     cliente_id: str = Header(..., alias="X-Cliente-Id"),
     uow: SqlAlchemyUnitOfWork = Depends(get_uow),
+    publisher: PublicadorEventos = Depends(get_event_publisher),
 ):
     """US-004: Confirmar checkout y crear pedido.
 
@@ -707,7 +718,7 @@ async def crear_pedido(
             codigo_postal=pedido_data.direccion.codigo_postal,
         )
 
-        use_case = ConfirmarCheckoutUseCase(uow, uow._publisher)
+        use_case = ConfirmarCheckoutUseCase(uow, publisher)
         pedido = use_case.ejecutar(
             cliente_id=UUID(cliente_id),
             lineas=lineas,
@@ -746,10 +757,11 @@ async def cancelar_pedido(
     pedido_id: UUID,
     motivo: MotivoCancelacion = Body(...),
     uow: SqlAlchemyUnitOfWork = Depends(get_uow),
+    publisher: PublicadorEventos = Depends(get_event_publisher),
 ):
     """US-008, US-009: Cancelar un pedido."""
     with uow:
-        use_case = CancelarPedidoUseCase(uow, uow._publisher)
+        use_case = CancelarPedidoUseCase(uow, publisher)
         pedido = use_case.ejecutar(
             pedido_id=pedido_id,
             motivo=motivo.motivo,
@@ -764,10 +776,11 @@ async def cancelar_pedido(
 async def iniciar_preparacion(
     pedido_id: UUID,
     uow: SqlAlchemyUnitOfWork = Depends(get_uow),
+    publisher: PublicadorEventos = Depends(get_event_publisher),
 ):
     """US-007: Iniciar preparación de un pedido."""
     with uow:
-        use_case = IniciarYEmpacarSurtidoUseCase(uow, uow._publisher)
+        use_case = IniciarYEmpacarSurtidoUseCase(uow, publisher)
         pedido = use_case.iniciar_preparacion(pedido_id)
         return PedidoResponse.from_domain(pedido)
 
@@ -777,10 +790,11 @@ async def confirmar_empaque(
     pedido_id: UUID,
     almacen_id: UUID = Body(..., embed=True),
     uow: SqlAlchemyUnitOfWork = Depends(get_uow),
+    publisher: PublicadorEventos = Depends(get_event_publisher),
 ):
     """US-007: Confirmar empaquetado de un surtido."""
     with uow:
-        use_case = IniciarYEmpacarSurtidoUseCase(uow, uow._publisher)
+        use_case = IniciarYEmpacarSurtidoUseCase(uow, publisher)
         pedido = use_case.confirmar_empaque_surtido(pedido_id, almacen_id)
         return PedidoResponse.from_domain(pedido)
 
@@ -792,10 +806,11 @@ async def despachar_pedido(
     pedido_id: UUID,
     datos: DespachoDatos = Body(...),
     uow: SqlAlchemyUnitOfWork = Depends(get_uow),
+    publisher: PublicadorEventos = Depends(get_event_publisher),
 ):
     """US-006: Despachar el pedido generando el Envío y la Guía."""
     with uow:
-        use_case = DespacharPedidoUseCase(uow, uow._publisher)
+        use_case = DespacharPedidoUseCase(uow, publisher)
         envio = use_case.ejecutar(pedido_id, datos.guia)
         return EnvioResponse.from_domain(envio)
 
@@ -807,10 +822,11 @@ async def registrar_entrega(
     pedido_id: UUID,
     datos: EntregaRegistro = Body(...),
     uow: SqlAlchemyUnitOfWork = Depends(get_uow),
+    publisher: PublicadorEventos = Depends(get_event_publisher),
 ):
     """US-010, US-011: Registrar intento de entrega."""
     with uow:
-        use_case = RegistrarEntregaUseCase(uow, uow._publisher)
+        use_case = RegistrarEntregaUseCase(uow, publisher)
         envio = use_case.ejecutar(
             pedido_id=pedido_id,
             exitoso=datos.exitoso,
@@ -874,6 +890,7 @@ async def listar_pedidos_cliente(
 async def solicitar_devolucion(
     devolucion_data: DevolucionSolicitar = Body(...),
     uow: SqlAlchemyUnitOfWork = Depends(get_uow),
+    publisher: PublicadorEventos = Depends(get_event_publisher),
 ):
     """US-013, US-014: Solicitar una devolución."""
     with uow:
@@ -885,7 +902,7 @@ async def solicitar_devolucion(
             for item in devolucion_data.lineas
         ]
 
-        use_case = SolicitarDevolucionUseCase(uow, uow._publisher)
+        use_case = SolicitarDevolucionUseCase(uow, publisher)
         devolucion = use_case.ejecutar(
             pedido_id=devolucion_data.pedido_id,
             lineas=lineas,
@@ -899,10 +916,11 @@ async def solicitar_devolucion(
 async def autorizar_devolucion(
     devolucion_id: UUID,
     uow: SqlAlchemyUnitOfWork = Depends(get_uow),
+    publisher: PublicadorEventos = Depends(get_event_publisher),
 ):
     """US-014: Autorizar una devolución."""
     with uow:
-        use_case = AutorizarDevolucionUseCase(uow, uow._publisher)
+        use_case = AutorizarDevolucionUseCase(uow, publisher)
         devolucion = use_case.autorizar(devolucion_id)
         return DevolucionResponse.from_domain(devolucion)
 
@@ -912,10 +930,11 @@ async def rechazar_devolucion(
     devolucion_id: UUID,
     motivo: MotivoRechazoDevolucion = Body(...),
     uow: SqlAlchemyUnitOfWork = Depends(get_uow),
+    publisher: PublicadorEventos = Depends(get_event_publisher),
 ):
     """Rechazar una devolución."""
     with uow:
-        use_case = AutorizarDevolucionUseCase(uow, uow._publisher)
+        use_case = AutorizarDevolucionUseCase(uow, publisher)
         devolucion = use_case.rechazar(devolucion_id, motivo.motivo)
         return DevolucionResponse.from_domain(devolucion)
 
@@ -924,10 +943,12 @@ async def rechazar_devolucion(
 async def confirmar_recepcion(
     devolucion_id: UUID,
     uow: SqlAlchemyUnitOfWork = Depends(get_uow),
+    publisher: PublicadorEventos = Depends(get_event_publisher),
+    pasarela: PasarelaPago = Depends(get_pasarela_pago),
 ):
     """US-014: Confirmar recepción en almacén."""
     with uow:
-        use_case = ProcesarReembolsoUseCase(uow, uow._publisher)
+        use_case = ProcesarReembolsoUseCase(uow, publisher, pasarela)
         devolucion = use_case.confirmar_recepcion_y_reembolsar(devolucion_id)
         return DevolucionResponse.from_domain(devolucion)
 
@@ -939,10 +960,11 @@ async def detectar_discrepancia(
     almacen_id: UUID,
     datos: DiscrepanciaInventario = Body(...),
     uow: SqlAlchemyUnitOfWork = Depends(get_uow),
+    publisher: PublicadorEventos = Depends(get_event_publisher),
 ):
     """US-016: Detectar discrepancia entre inventario web y físico."""
     with uow:
-        use_case = ConsultarDiscrepanciaInventarioUseCase(uow, uow._publisher)
+        use_case = ConsultarDiscrepanciaInventarioUseCase(uow, publisher)
         use_case.ejecutar(almacen_id, Sku.of(datos.sku), datos.cantidad_fisica)
         return {"status": "discrepancia_registrada", "almacen_id": str(almacen_id)}
 

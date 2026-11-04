@@ -335,11 +335,6 @@ def _crear_pedido_con_stock(session, cliente, almacen, producto, cantidad, sku):
     pedido.asignar_surtidos(surtidos)
 
     # 4. Guardar TODO antes del commit final
-    for surtido in surtidos:
-        from src.infrastructure.persistence.repositories import SqlAlchemyRepositorioSurtido
-        repo_surtido = SqlAlchemyRepositorioSurtido(session)
-        repo_surtido.guardar(surtido)
-
     repo_pedido.guardar(pedido)
     repo_almacen.guardar(almacen_actualizado)  # <-- Guardar con la reserva actualizada
     session.commit()

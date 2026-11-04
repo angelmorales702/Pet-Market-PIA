@@ -379,19 +379,27 @@ class TestCancelacionAPI:
         data = response.json()
         assert data["estado"] == "CANCELADO"
 
-    def test_cancelar_pedido_requiere_autorizacion(self, client, pedido_pagado):
-        """US-009: Cancelar pedido PAGADO requiere autorización de atención."""
-        # Sin autorización debe fallar
+    def test_cancelar_pedido_pagado_sin_preparacion(self, client, pedido_pagado):
+        """US-008: pedido pagado sin preparacion se cancela sin autorizacion (200)."""
         response = client.post(
             f"/pedidos/{pedido_pagado.id}/cancelar",
-            json={"motivo": "Cambio de opinión", "autorizado_por_atencion": False}
+            json={"motivo": "Cambio de opinion", "autorizado_por_atencion": False}
+        )
+        assert response.status_code == 200
+
+    def test_cancelar_pedido_en_preparacion_sin_autorizacion(self, client, pedido_en_preparacion):
+        """US-009: en preparacion, sin autorizacion de Atencion al cliente (409)."""
+        response = client.post(
+            f"/pedidos/{pedido_en_preparacion.id}/cancelar",
+            json={"motivo": "Cambio de opinion", "autorizado_por_atencion": False}
         )
         assert response.status_code == 409
 
-        # Con autorización debe funcionar
+    def test_cancelar_pedido_en_preparacion_con_autorizacion(self, client, pedido_en_preparacion):
+        """US-009: en preparacion, con autorizacion de Atencion al cliente (200)."""
         response = client.post(
-            f"/pedidos/{pedido_pagado.id}/cancelar",
-            json={"motivo": "Cambio de opinión", "autorizado_por_atencion": True}
+            f"/pedidos/{pedido_en_preparacion.id}/cancelar",
+            json={"motivo": "Cambio de opinion", "autorizado_por_atencion": True}
         )
         assert response.status_code == 200
 

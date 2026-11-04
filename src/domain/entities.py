@@ -149,6 +149,16 @@ class ExistenciaProducto:
         self.cantidad_reservada -= cantidad
         self.cantidad_disponible -= cantidad
 
+    def reponer(self, cantidad: int) -> None:
+        """Devuelve al stock disponible lo que se confirmó como venta.
+
+        Operación inversa de confirmar_reserva. Se usa cuando un pedido PAGADO
+        se cancela y se necesita devolver el stock al inventario.
+        """
+        if cantidad <= 0:
+            raise ValueError("La cantidad a reponer debe ser mayor a 0")
+        self.cantidad_disponible += cantidad
+
 
 @dataclass
 class IntentoEntrega:

@@ -192,14 +192,19 @@ class CancelarPedidoUseCase:
 
             pedido.cancelar(motivo)
 
-            # Liberar stock reservado o inventario si ya estaba pagado/en preparación
+            # Liberar o reponer stock según el estado del pedido
+            from src.domain.state_machine import EstadoPedido
             almacenes = uow.almacenes.obtener_todos()
             for surtido in pedido.surtidos:
                 almacen = next((a for a in almacenes if a.id == surtido.almacen_id), None)
                 if almacen:
                     for linea in surtido.lineas:
-                        # Si estaba pagado, el stock ya se descontó, habría que reingresarlo o liberar reserva
-                        almacen.liberar_reserva(linea.sku, linea.cantidad)
+                        # Si el pedido está PAGADO, el stock se confirmó como venta y hay que reponer
+                        # Si el pedido está en CREADO o PENDIENTE_PAGO, solo hay reserva que liberar
+                        if pedido.estado == EstadoPedido.PAGADO:
+                            almacen.reponer(linea.sku, linea.cantidad)
+                        else:
+                            almacen.liberar_reserva(linea.sku, linea.cantidad)
                     uow.almacenes.guardar(almacen)
 
             uow.pedidos.guardar(pedido)

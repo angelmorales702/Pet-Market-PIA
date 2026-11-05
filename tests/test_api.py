@@ -830,3 +830,28 @@ class TestEdgeCases:
         assert response.status_code == 200
         data = response.json()
         assert "existencias" in data
+
+
+
+class TestRegresiones:
+    """Regresiones de persistencia: guardar un pedido no debe duplicar datos."""
+
+    def test_pago_no_duplica_lineas_ni_total(self, client, pedido_pendiente_pago):
+        pid = str(pedido_pendiente_pago.id)
+        antes = client.get(f"/pedidos/{pid}")
+        assert antes.status_code == 200
+        antes = antes.json()
+        pago = client.post(
+            "/pagos",
+            json={"pedido_id": pid, "metodo_pago": "TARJETA", "datos_cliente": {}},
+        )
+        assert pago.status_code == 200
+        despues = client.get(f"/pedidos/{pid}").json()
+        assert despues["total"] == antes["total"]
+
+        def cantidades(d):
+            return sorted(
+                (ln["sku"], ln["cantidad"]) for s in d["surtidos"] for ln in s["lineas"]
+            )
+
+        assert cantidades(despues) == cantidades(antes)

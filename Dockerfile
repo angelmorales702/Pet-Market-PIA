@@ -9,15 +9,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy dependency files and install
-COPY pyproject.toml README.md ./
-RUN pip install --no-cache-dir .[dev]
+# Set Python path so 'src' module is importable
+ENV PYTHONPATH=/app
 
-# Copy application code
+# Copy dependency files and install from requirements.txt
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application code and configuration
+COPY pyproject.toml ./
 COPY src/ ./src/
 COPY tests/ ./tests/
 COPY docs/ ./docs/
-COPY alembic/ ./alembic/
+COPY scripts/ ./scripts/
 COPY alembic.ini ./
 
 # Create non-root user

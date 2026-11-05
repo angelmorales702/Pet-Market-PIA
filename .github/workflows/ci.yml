@@ -37,6 +37,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install .[dev]
 
+      - name: Run migrations
+        env:
+          DATABASE_URL: postgresql://petmarket_user:petmarket_pass@localhost:5432/petmarket_db
+        run: alembic upgrade head
+
       - name: Run Ruff Linter
         run: |
           ruff check .

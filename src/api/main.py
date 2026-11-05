@@ -578,8 +578,27 @@ class FakePasarelaPago(PasarelaPago):
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint for deployment and orchestration."""
-    return {"status": "healthy", "service": "petmarket-api"}
+    """Health check endpoint - verifies database connectivity."""
+    try:
+        from sqlalchemy import text
+        from fastapi import status
+
+        # Check database connectivity
+        db_session = SessionLocal()
+        db_session.execute(text("SELECT 1"))
+        db_session.close()
+
+        return {
+            "status": "healthy",
+            "service": "petmarket-api",
+            "database": "connected"
+        }
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database connection failed"
+        )
 
 
 # --- Productos (Catálogo) - US-001 ---

@@ -2,26 +2,35 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Instalar dependencias del sistema
+# Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     build-essential \
+    libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copiar configuración de dependencias e instalar
+# Copy dependency files and install
 COPY pyproject.toml README.md ./
 RUN pip install --no-cache-dir .[dev]
 
-# Copiar código de aplicación y tests
+# Copy application code
 COPY src/ ./src/
 COPY tests/ ./tests/
 COPY docs/ ./docs/
+COPY alembic/ ./alembic/
+COPY alembic.ini ./
 
-# Exponer puerto predeterminado
+# Create non-root user
+RUN useradd --create-home --shell /bin/bash appuser && \
+    chown -R appuser:appuser /app
+USER appuser
+
+# Exposed port
 EXPOSE 8000
 
-# Health check para Render / Fly.io / Railway
-HEALTHCHECK --interval=10s --timeout=5s --start-period=5s --retries=3 \
+# Health check
+HEALTHCHECK --interval=10s --timeout=5s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:${PORT:-8000}/health || exit 1
 
-CMD ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Startup script runs alembic migrations then starts uvicorn
+ENTRYPOINT ["sh", "-c", "alembic upgrade head && exec uvicorn src.api.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

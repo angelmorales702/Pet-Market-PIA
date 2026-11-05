@@ -9,16 +9,15 @@ from uuid import uuid4
 from src.domain.aggregates import Almacen, Pedido
 from src.domain.entities import LineaPedido
 from src.domain.specifications import (
-    PedidoCancelableSpec,
+    PagoAprobableSpec,
     PedidoEntregadoSpec,
     PedidoPagadoSpec,
-    PagoAprobableSpec,
     ProductoActivoSpec,
     ProductoDisponibleSpec,
     StockSuficienteSpec,
 )
 from src.domain.state_machine import EstadoPedido
-from src.domain.value_objects import DireccionEntrega, Dinero, Sku
+from src.domain.value_objects import Dinero, DireccionEntrega, Sku
 
 
 def test_producto_activo_spec() -> None:
@@ -71,6 +70,7 @@ def test_producto_disponible_spec_sin_stock() -> None:
 def test_pedido_pagado_spec() -> None:
     """US-008: Pedido en estado PAGADO."""
     from uuid import uuid4
+
     from src.domain.entities import Surtido
 
     direccion = DireccionEntrega("Calle", "1", "Col", "Ciudad", "64000")
@@ -87,6 +87,7 @@ def test_pedido_pagado_spec() -> None:
 def test_pedido_entregado_spec() -> None:
     """US-013: Pedido en estado ENTREGADO para devolución."""
     from uuid import uuid4
+
     from src.domain.entities import Surtido
     from src.domain.value_objects import Guia
 
@@ -174,6 +175,7 @@ def test_spec_combinada_not() -> None:
 def test_pago_aprobable_spec_exacto() -> None:
     """US-004: Pago aprobable con monto exacto."""
     from uuid import uuid4
+
     from src.domain.entities import Surtido
 
     direccion = DireccionEntrega("Calle", "1", "Col", "Ciudad", "64000")
@@ -189,6 +191,7 @@ def test_pago_aprobable_spec_exacto() -> None:
 def test_pago_aprobable_spec_diferente_moneda() -> None:
     """US-004: Pago no aprobable con moneda distinta."""
     from uuid import uuid4
+
     from src.domain.entities import Surtido
 
     direccion = DireccionEntrega("Calle", "1", "Col", "Ciudad", "64000")

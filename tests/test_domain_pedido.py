@@ -4,8 +4,9 @@ Cada test cita la User Story que cubre según docs/fuentes.
 """
 from __future__ import annotations
 
-import pytest
 from uuid import uuid4
+
+import pytest
 
 from src.domain.aggregates import Pedido
 from src.domain.entities import LineaPedido
@@ -14,7 +15,7 @@ from src.domain.exceptions import (
     TransicionEstadoInvalidaException,
 )
 from src.domain.state_machine import EstadoPedido
-from src.domain.value_objects import DireccionEntrega, Dinero, Sku
+from src.domain.value_objects import Dinero, DireccionEntrega, Sku
 
 
 @pytest.fixture
@@ -52,6 +53,7 @@ def test_pedido_creado_estado_creado(linea_pedido, direccion) -> None:
 def test_pedido_transicion_a_pagado(linea_pedido, direccion) -> None:
     """US-004: Compra confirmada tras pago exitoso."""
     from uuid import uuid4
+
     from src.domain.entities import Surtido
 
     pedido = Pedido.crear(
@@ -77,6 +79,7 @@ def test_pedido_transicion_a_pagado(linea_pedido, direccion) -> None:
 def test_pedido_cancelar_cliente_antes_de_preparacion(linea_pedido, direccion) -> None:
     """US-008: Cancelación antes de preparación sin penalización."""
     from uuid import uuid4
+
     from src.domain.entities import Surtido
 
     pedido = Pedido.crear(
@@ -103,6 +106,7 @@ def test_pedido_cancelar_cliente_antes_de_preparacion(linea_pedido, direccion) -
 def test_pedido_no_cancelable_despues_de_enviado(linea_pedido, direccion) -> None:
     """US-009: Cancelación tardía requiere autorización."""
     from uuid import uuid4
+
     from src.domain.entities import Surtido
     from src.domain.value_objects import Guia
 
@@ -152,12 +156,12 @@ def test_pedido_reintentos_pago_tres_veces() -> None:
     """US-003: Máximo 3 reintentos de pago antes de cancelar."""
     from src.domain.aggregates import Pedido
     from src.domain.entities import LineaPedido
-    from src.domain.value_objects import DireccionEntrega, Dinero, Sku
+    from src.domain.value_objects import Dinero, DireccionEntrega, Sku
 
     direccion = DireccionEntrega("Calle", "1", "Col", "Ciudad", "64000")
     linea = LineaPedido(Sku.of("SKU-00002"), 1, Dinero(100, "MXN"))
     pedido = Pedido.crear(uuid4(), [linea], direccion)
-    monto = Dinero(100, "MXN")
+    Dinero(100, "MXN")
 
     pedido.marcar_pago_rechazado("Tarjeta rechazada")
     pedido.marcar_pago_rechazado("Tarjeta rechazada")

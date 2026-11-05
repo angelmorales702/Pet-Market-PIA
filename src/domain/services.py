@@ -6,20 +6,14 @@ Alineados con docs/fuentes/Diagrama_de_clases.md y Diagramas_DDD.md
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 from uuid import UUID, uuid4
 
 from .aggregates import Almacen, Pedido
-from .entities import LineaPedido, Surtido
+from .entities import Surtido
 from .events import StockInsuficienteEvent
-from .exceptions import (
-    AlmacenNoEncontradoError,
-    ProductoNoEncontradoError,
-    StockInsuficienteError,
-)
 from .value_objects import Sku
-
 
 # ============================================================================
 # RELOJ INYECTABLE Y CALENDARIO DE DÍAS HÁBILES
@@ -37,7 +31,7 @@ class RelojSistema(Reloj):
     """Implementación que usa el reloj del sistema."""
 
     def ahora(self) -> datetime:
-        return datetime.now()
+        return datetime.now(timezone.utc)
 
 
 class RelojFijo(Reloj):
@@ -183,7 +177,7 @@ class ReservaExpiradaService:
 
     def liberar_reservas_expiradas(self, almacenes: List[Almacen]) -> None:
         """Recorre almacenes y libera reservas > 15 min."""
-        ahora = self._reloj.ahora()
+        ahora = self._reloj.ahora()  # noqa: F841  # Placeholder: se usará cuando existencias tengan timestamp de reserva
         # En la implementación real, ExistenciaProducto guardaría timestamp de reserva
         # Aquí es un placeholder - la lógica real está en ExistenciaProducto
         pass
@@ -194,6 +188,7 @@ class ReservaExpiradaService:
 # ============================================================================
 
 from .specifications import Specification
+
 
 class PedidoPendienteDePagoSpec(Specification[Pedido]):
     """US-004: Pedido está en PENDIENTE_PAGO (esperando pago)."""

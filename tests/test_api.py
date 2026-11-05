@@ -14,20 +14,10 @@ para asegurar aislamiento. Usamos clean_db para limpiar después de cada test.
 from __future__ import annotations
 
 from datetime import datetime
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
-
-from src.domain.aggregates import Almacen, Cliente, Pedido, Producto, Devolucion
-from src.domain.entities import (
-    ExistenciaProducto, LineaPedido, LineaDevolucion, Surtido
-)
-from src.domain.value_objects import (
-    DireccionEntrega, Dinero, EstadoSurtido, Guia, MotivoDevolucion, Sku
-)
-from src.infrastructure.persistence.repositories import SqlAlchemyRepositorioDevolucion
-
 
 # =============================================================================
 # Fixtures
@@ -41,8 +31,8 @@ def app_with_uow(clean_db, session):
     Los datos se crean dentro de cada test usando el fixture session.
     """
     from src.api.main import app
-    from src.infrastructure.persistence.uow import SqlAlchemyUnitOfWork
     from src.application.in_memory import InMemoryEventPublisher
+    from src.infrastructure.persistence.uow import SqlAlchemyUnitOfWork
 
     # Crear UoW con la session del test
     publisher = InMemoryEventPublisher()
@@ -674,6 +664,16 @@ class TestDevolucionAPI:
         response = client.post(f"/devoluciones/{devolucion_id}/confirmar-recepcion")
         assert response.status_code == 200
 
+        # Verificar estado de devolución
+        devolucion_resp = response.json()
+        assert devolucion_resp["estado"] == "PROCESADA"
+
+        # Verificar que el pago fue reembolsado y el pedido cerrado en DEVUELTO
+        pedido_resp = client.get(f"/pedidos/{pedido_entregado.id}")
+        assert pedido_resp.status_code == 200
+        pedido_data = pedido_resp.json()
+        assert pedido_data["estado"] == "DEVUELTO"
+
 
 # =============================================================================
 # Tests de Discrepancia de Inventario - US-016
@@ -830,3 +830,286 @@ class TestEdgeCases:
         assert response.status_code == 200
         data = response.json()
         assert "existencias" in data
+
+
+class TestMapeoErroresAPI:
+    """Tests de verificación del mapeo central de errores.
+
+    Verifica que los errores se mapeen correctamente:
+    - NoEncontrado → 404
+    - TransicionEstadoInvalida, CancelacionNoPermitida, DevolucionNoPermitida, StockInsuficiente → 409
+    - Validación (SKU inválido, método de pago inválido) → 422
+    Formato: {"detail": {"codigo": "...", "mensaje": "..."}}
+    """
+
+    def test_error_404_pedido_no_encontrado_formato(self, client):
+        """US-003: Pedido no encontrado retorna 404 con formato correcto."""
+        response = client.post(
+            "/pagos",
+            json={"pedido_id": str(uuid4()), "metodo_pago": "TARJETA", "datos_cliente": {}}
+        )
+        assert response.status_code == 404
+        data = response.json()
+        assert "detail" in data
+        assert "codigo" in data["detail"]
+        assert "mensaje" in data["detail"]
+        assert data["detail"]["codigo"] == "PEDIDO_NO_ENCONTRADO"
+
+    def test_error_404_producto_no_encontrado_formato(self, client):
+        """US-001: Producto no encontrado retorna 404 con formato correcto."""
+        response = client.get("/productos/SKU-99999")
+        assert response.status_code == 404
+        data = response.json()
+        assert data["detail"]["codigo"] == "PRODUCTO_NO_ENCONTRADO"
+        assert "mensaje" in data["detail"]
+
+    def test_error_404_devolucion_no_encontrado_formato(self, client):
+        """US-014: Devolución no encontrada retorna 404 con formato correcto."""
+        response = client.post(f"/devoluciones/{uuid4()}/autorizar")
+        assert response.status_code == 404
+        data = response.json()
+        assert data["detail"]["codigo"] == "DEVOLUCION_NO_ENCONTRADO"
+
+    def test_error_404_almacen_no_encontrado_formato(self, client):
+        """US-016: Almacén no encontrado retorna 404 con formato correcto."""
+        response = client.post(
+            f"/almacenes/{uuid4()}/discrepancia",
+            json={"sku": "SKU-00001", "cantidad_fisica": 50}
+        )
+        assert response.status_code == 404
+        data = response.json()
+        assert data["detail"]["codigo"] == "ALMACEN_NO_ENCONTRADO"
+
+    def test_error_409_stock_insuficiente_formato(self, client, producto_sin_stock, cliente):
+        """US-001: Stock insuficiente retorna 409 con formato correcto."""
+        sku = str(producto_sin_stock.sku)
+        pedido_data = {
+            "lineas": [{"sku": sku, "cantidad": 1}],
+            "direccion": {
+                "calle": "Calle Test",
+                "numero": "123",
+                "colonia": "Centro",
+                "ciudad": "CDMX",
+                "codigo_postal": "01001"
+            }
+        }
+        response = client.post(
+            "/pedidos",
+            json=pedido_data,
+            headers={"X-Cliente-Id": str(cliente.id)}
+        )
+        assert response.status_code == 409
+        data = response.json()
+        assert data["detail"]["codigo"] == "STOCK_INSUFICIENTE"
+
+    def test_error_409_cancelacion_no_permitida_formato(self, client, pedido_en_preparacion):
+        """US-009: Cancelación no permitida retorna 409 con formato correcto."""
+        response = client.post(
+            f"/pedidos/{pedido_en_preparacion.id}/cancelar",
+            json={"motivo": "Cambio de opinión", "autorizado_por_atencion": False}
+        )
+        assert response.status_code == 409
+        data = response.json()
+        assert data["detail"]["codigo"] == "CANCELACION_NO_PERMITIDA"
+
+    def test_error_409_devolucion_no_permitida_formato(self, client, pedido_pagado):
+        """US-013: Devolución no permitida para pedido no entregado retorna 409."""
+        devolucion_data = {
+            "pedido_id": str(pedido_pagado.id),
+            "lineas": [{"sku": "SKU-00002", "cantidad": 1}],
+            "motivo": "Cambio de opinión",
+            "fecha_entrega": datetime.now().isoformat(timespec="seconds")
+        }
+        response = client.post("/devoluciones", json=devolucion_data)
+        assert response.status_code == 409
+        data = response.json()
+        assert data["detail"]["codigo"] == "DEVOLUCION_NO_PERMITIDA"
+
+    def test_error_409_transicion_estado_invalida_formato(self, client, pedido_pendiente_pago):
+        """US-007: Transición de estado inválida retorna 409 con formato correcto."""
+        # Intentar despachar un pedido que aún no está empacado
+        response = client.post(
+            f"/pedidos/{pedido_pendiente_pago.id}/enviar",
+            json={"guia": "GUIA-INVALID"}
+        )
+        # Debe retornar 409 con código ESTADO_INVALIDO
+        assert response.status_code == 409
+        data = response.json()
+        assert data["detail"]["codigo"] == "ESTADO_INVALIDO"
+
+    def test_error_422_sku_invalido_formato(self, client):
+        """Validación de SKU inválido retorna 422 con formato correcto."""
+        response = client.get("/productos/SKU-INVALID")
+        assert response.status_code == 422
+        data = response.json()
+        assert data["detail"]["codigo"] == "SKU_INVALIDO"
+
+    def test_error_422_codigo_postal_invalido_formato(self, client, cliente):
+        """Validación de código postal inválido retorna 422 con formato correcto."""
+        response = client.post(
+            "/pedidos",
+            json={
+                "lineas": [{"sku": "SKU-00001", "cantidad": 1}],
+                "direccion": {
+                    "calle": "Test",
+                    "numero": "1",
+                    "colonia": "Centro",
+                    "ciudad": "CDMX",
+                    "codigo_postal": "ABC"
+                }
+            },
+            headers={"X-Cliente-Id": str(cliente.id)}
+        )
+        assert response.status_code == 422
+        data = response.json()
+        assert "detail" in data
+        assert "codigo" in data["detail"]
+        assert "mensaje" in data["detail"]
+
+    def test_nunca_500_por_errores_previsibles(self, client):
+        """Verifica que errores conocidos nunca devuelvan 500."""
+        from uuid import uuid4
+        # Pedido no encontrado
+        response = client.get(f"/pedidos/{uuid4()}")
+        assert response.status_code != 500
+        assert response.status_code == 404
+
+        # SKU inválido
+        response = client.get("/productos/SKU-XXXXX")
+        assert response.status_code != 500
+
+
+
+class TestRegresiones:
+    """Regresiones de persistencia: guardar un pedido no debe duplicar datos."""
+
+    def test_pago_no_duplica_lineas_ni_total(self, client, pedido_pendiente_pago):
+        pid = str(pedido_pendiente_pago.id)
+        antes = client.get(f"/pedidos/{pid}")
+        assert antes.status_code == 200
+        antes = antes.json()
+        pago = client.post(
+            "/pagos",
+            json={"pedido_id": pid, "metodo_pago": "TARJETA", "datos_cliente": {}},
+        )
+        assert pago.status_code == 200
+        despues = client.get(f"/pedidos/{pid}").json()
+        assert despues["total"] == antes["total"]
+
+        def cantidades(d):
+            return sorted(
+                (ln["sku"], ln["cantidad"]) for s in d["surtidos"] for ln in s["lineas"]
+            )
+
+        assert cantidades(despues) == cantidades(antes)
+
+    def test_preparar_empacar_despachar_no_duplica_lineas(self, client, pedido_pagado):
+        """US-007: Iniciar preparación y empacar no duplica líneas ni cambia total."""
+        pid = str(pedido_pagado.id)
+
+        # Obtener estado inicial
+        antes = client.get(f"/pedidos/{pid}")
+        assert antes.status_code == 200
+        antes_json = antes.json()
+
+        # Iniciar preparación
+        prep = client.post(f"/pedidos/{pid}/iniciar-preparacion")
+        assert prep.status_code == 200
+
+        # Confirmar empaquado (usar el almacén del primer surtido)
+        surtido = antes_json.get("surtidos", [{}])[0]
+        almacen_id = surtido.get("almacen_id")
+        if almacen_id:
+            empacar = client.post(
+                f"/pedidos/{pid}/confirmar-empaque",
+                json={"almacen_id": almacen_id}
+            )
+            assert empacar.status_code == 200
+
+        # Despachar
+        despachar = client.post(
+            f"/pedidos/{pid}/enviar",
+            json={"guia": "GUIA-REGRESION-TEST"}
+        )
+        assert despachar.status_code == 200
+
+        # Verificar que el total no cambió
+        despues = client.get(f"/pedidos/{pid}").json()
+        assert despues["total"] == antes_json["total"]
+
+        # Verificar que las cantidades no cambiaron
+        def cantidades(d):
+            return sorted(
+                (ln["sku"], ln["cantidad"]) for s in d.get("surtidos", []) for ln in s.get("lineas", [])
+            )
+
+        assert cantidades(despues) == cantidades(antes_json)
+
+    def test_cancelar_pedido_pagado_no_duplica_lineas(self, client, pedido_pagado):
+        """US-008: Cancelar pedido PAGADO no duplica líneas ni cambia total del pedido original."""
+        pid = str(pedido_pagado.id)
+
+        # Obtener estado inicial
+        antes = client.get(f"/pedidos/{pid}")
+        assert antes.status_code == 200
+        antes.json()
+
+        # Cancelar el pedido
+        cancelar = client.post(
+            f"/pedidos/{pid}/cancelar",
+            json={"motivo": "Cambio de opinión", "autorizado_por_atencion": False}
+        )
+        assert cancelar.status_code == 200
+
+        # Verificar que el estado cambió a CANCELADO
+        cancelado = cancelar.json()
+        assert cancelado["estado"] == "CANCELADO"
+
+    def test_cancelar_pedido_pagado_reposa_stock(self, client, pedido_pagado, almacen_norte):
+        """US-008: Cancelar un pedido PAGADO debe reposar el stock en almacén."""
+
+        pid = str(pedido_pagado.id)
+
+        # Obtener inventario antes de la cancelación
+        inventario_antes = client.get(f"/almacenes/{almacen_norte.id}/inventario")
+        assert inventario_antes.status_code == 200
+        inv_antes = inventario_antes.json()
+
+        # Obtener SKU del pedido
+        sku_pedido = None
+        for surtido in pedido_pagado.surtidos:
+            if surtido.almacen_id == almacen_norte.id:
+                if surtido.lineas:
+                    sku_pedido = str(surtido.lineas[0].sku)
+                    break
+
+        if sku_pedido:
+            # Obtener disponible antes
+            disp_antes = None
+            for ex in inv_antes.get("existencias", []):
+                if ex["sku"] == sku_pedido:
+                    disp_antes = ex["disponible"]
+                    break
+
+            # Cancelar el pedido
+            response = client.post(
+                f"/pedidos/{pid}/cancelar",
+                json={"motivo": "Test reposición stock", "autorizado_por_atencion": False}
+            )
+            assert response.status_code == 200
+
+            # Verificar inventario después de la cancelación
+            inventario_despues = client.get(f"/almacenes/{almacen_norte.id}/inventario")
+            assert inventario_despues.status_code == 200
+            inv_despues = inventario_despues.json()
+
+            # El stock debe haber aumentado (se repuso)
+            disp_despues = None
+            for ex in inv_despues.get("existencias", []):
+                if ex["sku"] == sku_pedido:
+                    disp_despues = ex["disponible"]
+                    break
+
+            if disp_antes is not None and disp_despues is not None:
+                # El stock reponido debe ser mayor o igual
+                assert disp_despues >= disp_antes

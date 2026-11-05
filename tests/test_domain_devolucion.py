@@ -4,9 +4,10 @@ US-013, US-014, US-015
 """
 from __future__ import annotations
 
-import pytest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
+
+import pytest
 
 from src.domain.aggregates import Devolucion
 from src.domain.entities import LineaDevolucion
@@ -19,8 +20,8 @@ def test_devolucion_solicitar_dentro_ventana() -> None:
     motivo = MotivoDevolucion("Producto defectuoso")
     devolucion = Devolucion.solicitar(uuid4(), lineas, motivo)
 
-    # Simular fecha de entrega hace 3 días hábiles
-    fecha_entrega = datetime.now() - timedelta(days=3)
+    # Simular fecha de entrega hace 3 días (hoy cuenta como día 1, 3 días hábiles después está dentro)
+    fecha_entrega = datetime.now(timezone.utc) - timedelta(days=3)
     assert devolucion.esta_dentro_ventana(fecha_entrega, dias_habiles=5) is True
 
 
@@ -30,8 +31,8 @@ def test_devolucion_fuera_ventana() -> None:
     motivo = MotivoDevolucion("No me gusta")
     devolucion = Devolucion.solicitar(uuid4(), lineas, motivo)
 
-    # Simular fecha de entrega hace 10 días hábiles
-    fecha_entrega = datetime.now() - timedelta(days=12)
+    # Simular fecha de entrega hace 10 días (más de 5 días hábiles)
+    fecha_entrega = datetime.now(timezone.utc) - timedelta(days=12)
     assert devolucion.esta_dentro_ventana(fecha_entrega, dias_habiles=5) is False
 
 
@@ -55,8 +56,8 @@ def test_devolucion_flujo_autorizacion_recepcion_reembolso() -> None:
 
 def test_devolucion_no_autorizar_sin_solicitud() -> None:
     """Devolución no puede autorizarse si no está SOLICITADA."""
-    from src.domain.value_objects import EstadoDevolucion
     from src.domain.exceptions import TransicionEstadoInvalidaException
+    from src.domain.value_objects import EstadoDevolucion
 
     lineas = [LineaDevolucion(Sku.of("SKU-00014"), 1)]
     motivo = MotivoDevolucion("Motivo")

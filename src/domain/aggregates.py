@@ -8,8 +8,7 @@ Alineados con docs/fuentes/Diagrama_de_clases.md y Diagramas_DDD.md
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
-from enum import Enum
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from uuid import UUID, uuid4
 
@@ -33,22 +32,18 @@ from .events import (
     PedidoEmpacadoEvent,
     PedidoEntregadoEvent,
     PedidoEnviadoEvent,
-    StockInsuficienteEvent,
     StockReservadoEvent,
     SurtidoEmpacadoEvent,
 )
 from .exceptions import (
-    CancelacionNoPermitidaError,
     DevolucionNoPermitidaError,
-    PagoMontoNoCoincideError,
-    PagoRechazadoError,
     StockInsuficienteError,
     TransicionEstadoInvalidaException,
 )
 from .state_machine import EstadoPedido, transitar
 from .value_objects import (
-    DireccionEntrega,
     Dinero,
+    DireccionEntrega,
     EstadoDevolucion,
     EstadoEnvio,
     EstadoPago,
@@ -104,8 +99,11 @@ class Pedido(AggregateRoot):
     _envio_id: Optional[UUID] = None
     _devolucion_id: Optional[UUID] = None
     reintentos_pago: int = 0
-    fecha_creacion: datetime = field(default_factory=datetime.now)
-    fecha_actualizacion: datetime = field(default_factory=datetime.now)
+    fecha_creacion: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    fecha_actualizacion: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+    def actualizar_estado(self, nuevo_estado: EstadoPedido) -> None:
+        self.fecha_actualizacion = datetime.now(timezone.utc)
 
     @classmethod
     def crear(
@@ -139,7 +137,7 @@ class Pedido(AggregateRoot):
         for surtido in surtidos:
             surtido.pedido_id = self.id
         self.estado = EstadoPedido.PENDIENTE_PAGO
-        self.fecha_actualizacion = datetime.now()
+        self.fecha_actualizacion = datetime.now(timezone.utc)
 
     def marcar_pagado(self, monto_pagado: Dinero) -> None:
         """Marca el pedido como pagado tras confirmación de pago.
@@ -154,7 +152,7 @@ class Pedido(AggregateRoot):
         ))
         # Confirmar reservas en almacenes (descuenta stock real)
         for surtido in self.surtidos:
-            for linea in surtido.lineas:
+            for _linea in surtido.lineas:
                 # Se haría via Almacen en la capa de aplicación
                 pass
 
@@ -179,7 +177,7 @@ class Pedido(AggregateRoot):
                 moneda=self.total.moneda,
                 motivo=motivo,
             ))
-        self.fecha_actualizacion = datetime.now()
+        self.fecha_actualizacion = datetime.now(timezone.utc)
 
     def iniciar_preparacion(self) -> None:
         """Inicia la preparación del pedido (transición a EN_PREPARACION).
@@ -189,7 +187,7 @@ class Pedido(AggregateRoot):
         self._transicionar(EstadoPedido.EN_PREPARACION)
         for surtido in self.surtidos:
             surtido.marcar_en_preparacion()
-        self.fecha_actualizacion = datetime.now()
+        self.fecha_actualizacion = datetime.now(timezone.utc)
 
     def confirmar_empaque(self, almacen_id: UUID) -> None:
         """Confirma el empaquetado de un surtido específico.
@@ -209,7 +207,7 @@ class Pedido(AggregateRoot):
         if all(s.estado.value == "EMPACADO" for s in self.surtidos):
             self._transicionar(EstadoPedido.EMPACADO, {"surtidos": self.surtidos})
             self.add_domain_event(PedidoEmpacadoEvent(pedido_id=self.id))
-        self.fecha_actualizacion = datetime.now()
+        self.fecha_actualizacion = datetime.now(timezone.utc)
 
     def marcar_enviado(self, guia: Guia) -> None:
         """Marca el pedido como enviado asignando la guía.
@@ -218,7 +216,7 @@ class Pedido(AggregateRoot):
         """
         self._transicionar(EstadoPedido.ENVIADO, {"guia": guia})
         self.add_domain_event(PedidoEnviadoEvent(pedido_id=self.id, guia=guia.valor))
-        self.fecha_actualizacion = datetime.now()
+        self.fecha_actualizacion = datetime.now(timezone.utc)
 
     def registrar_intento_entrega(self, exitoso: bool, observaciones: str = "") -> None:
         """Registra un intento de entrega.
@@ -236,7 +234,7 @@ class Pedido(AggregateRoot):
         if exitoso:
             self._transicionar(EstadoPedido.ENTREGADO)
             self.add_domain_event(PedidoEntregadoEvent(pedido_id=self.id))
-        self.fecha_actualizacion = datetime.now()
+        self.fecha_actualizacion = datetime.now(timezone.utc)
 
     def marcar_entrega_fallida(self) -> None:
         """Marca la entrega como fallida tras agotar intentos.
@@ -248,7 +246,7 @@ class Pedido(AggregateRoot):
             pedido_id=self.id,
             intentos_realizados=2,
         ))
-        self.fecha_actualizacion = datetime.now()
+        self.fecha_actualizacion = datetime.now(timezone.utc)
 
     def solicitar_devolucion(self, motivo: MotivoDevolucion) -> UUID:
         """Solicita una devolución para el pedido entregado.
@@ -265,7 +263,7 @@ class Pedido(AggregateRoot):
             devolucion_id=devolucion_id,
             motivo=motivo.valor,
         ))
-        self.fecha_actualizacion = datetime.now()
+        self.fecha_actualizacion = datetime.now(timezone.utc)
         return devolucion_id
 
     def cancelar(self, motivo: str) -> None:
@@ -277,7 +275,7 @@ class Pedido(AggregateRoot):
         # La guarda en state_machine verifica que no esté ENVIADO o posterior
         self._transicionar(EstadoPedido.CANCELADO)
         self.add_domain_event(PedidoCanceladoEvent(pedido_id=self.id))
-        self.fecha_actualizacion = datetime.now()
+        self.fecha_actualizacion = datetime.now(timezone.utc)
 
     @property
     def total(self) -> Dinero:
@@ -291,7 +289,7 @@ class Pedido(AggregateRoot):
     def _transicionar(self, nuevo_estado: EstadoPedido, contexto: dict | None = None) -> None:
         """Realiza la transición de estado usando la State Machine."""
         self.estado = transitar(self.estado, nuevo_estado, contexto)
-        self.fecha_actualizacion = datetime.now()
+        self.fecha_actualizacion = datetime.now(timezone.utc)
 
     def puede_cancelar_cliente(self) -> bool:
         """US-008: Cliente puede cancelar solo antes de EN_PREPARACION."""
@@ -485,7 +483,7 @@ class Pago(AggregateRoot):
         if self.estado != EstadoPago.PENDIENTE:
             raise TransicionEstadoInvalidaException(self.estado.value, EstadoPago.APROBADO.value)
         self.estado = EstadoPago.APROBADO
-        self.fecha_actualizacion = datetime.now()
+        self.fecha_actualizacion = datetime.now(timezone.utc)
 
     def rechazar(self, motivo: str) -> None:
         """Rechaza el pago e incrementa reintentos.
@@ -494,7 +492,7 @@ class Pago(AggregateRoot):
         """
         self.reintentos += 1
         self.motivo_rechazo = motivo
-        self.fecha_actualizacion = datetime.now()
+        self.fecha_actualizacion = datetime.now(timezone.utc)
         if self.reintentos >= 3:
             self.estado = EstadoPago.RECHAZADO
 
@@ -507,7 +505,7 @@ class Pago(AggregateRoot):
             raise TransicionEstadoInvalidaException(self.estado.value, "REEMBOLSADO")
         self.estado = EstadoPago.RECHAZADO  # En este modelo, RECHAZADO sirve como "reembolsado"
         # # SUPUESTO: Añadir estado REEMBOLSADO explícito. Validar con el negocio.
-        self.fecha_actualizacion = datetime.now()
+        self.fecha_actualizacion = datetime.now(timezone.utc)
 
 
 # ============================================================================
@@ -539,7 +537,7 @@ class Envio(AggregateRoot):
         """
         self.guia = guia
         self.estado = EstadoEnvio.EN_TRASITO
-        self.fecha_actualizacion = datetime.now()
+        self.fecha_actualizacion = datetime.now(timezone.utc)
 
     def registrar_intento(self, exitoso: bool, observaciones: str = "") -> IntentoEntrega:
         """Registra un intento de entrega.
@@ -555,7 +553,7 @@ class Envio(AggregateRoot):
             observaciones=observaciones,
         )
         self.intentos.append(intento)
-        self.fecha_actualizacion = datetime.now()
+        self.fecha_actualizacion = datetime.now(timezone.utc)
 
         if exitoso:
             self.estado = EstadoEnvio.ENTREGADO
@@ -611,7 +609,7 @@ class Devolucion(AggregateRoot):
         if self.estado != EstadoDevolucion.SOLICITADA:
             raise TransicionEstadoInvalidaException(self.estado.value, EstadoDevolucion.APROBADA.value)
         self.estado = EstadoDevolucion.APROBADA
-        self.fecha_autorizacion = datetime.now()
+        self.fecha_autorizacion = datetime.now(timezone.utc)
         self.add_domain_event(DevolucionAprobadaEvent(
             pedido_id=self.pedido_id,
             devolucion_id=self.id,
@@ -632,7 +630,7 @@ class Devolucion(AggregateRoot):
         if self.estado != EstadoDevolucion.APROBADA:
             raise TransicionEstadoInvalidaException(self.estado.value, EstadoDevolucion.PROCESADA.value)
         self.estado = EstadoDevolucion.PROCESADA
-        self.fecha_recepcion_almacen = datetime.now()
+        self.fecha_recepcion_almacen = datetime.now(timezone.utc)
 
     def marcar_reembolsado(self) -> None:
         """Pagos procesa el reembolso.
@@ -641,18 +639,25 @@ class Devolucion(AggregateRoot):
         """
         if self.estado != EstadoDevolucion.PROCESADA:
             raise TransicionEstadoInvalidaException(self.estado.value, "REEMBOLSADO")
-        self.fecha_reembolso = datetime.now()
+        self.fecha_reembolso = datetime.now(timezone.utc)
 
-    def esta_dentro_ventana(self, fecha_entrega: datetime, dias_habiles: int = 5) -> bool:
+    def esta_dentro_ventana(self, fecha_entrega: datetime, dias_habiles: int = 5, calendario=None, reloj=None) -> bool:
         """Verifica si la solicitud está dentro de la ventana de devolución.
 
         US-013: 5 días hábiles posteriores a la entrega.
         # SUPUESTO: Cálculo de días hábiles (excluye fines de semana). Validar con el negocio.
         """
-        fecha_limite = fecha_entrega
-        dias_agregados = 0
-        while dias_agregados < dias_habiles:
-            fecha_limite += timedelta(days=1)
-            if fecha_limite.weekday() < 5:  # 0-4 = Lun-Vie
-                dias_agregados += 1
-        return datetime.now() <= fecha_limite
+        # Normalizar fecha de entrega a UTC si no tiene zona
+        if fecha_entrega.tzinfo is None:
+            fecha_entrega = fecha_entrega.replace(tzinfo=timezone.utc)
+        if calendario is not None:
+            fecha_limite = calendario.agregar_dias_habiles(fecha_entrega, dias_habiles)
+        else:
+            fecha_limite = fecha_entrega
+            dias_agregados = 0
+            while dias_agregados < dias_habiles:
+                fecha_limite += timedelta(days=1)
+                if fecha_limite.weekday() < 5:  # 0-4 = Lun-Vie
+                    dias_agregados += 1
+        ahora = reloj.ahora() if reloj else datetime.now(timezone.utc)
+        return ahora <= fecha_limite

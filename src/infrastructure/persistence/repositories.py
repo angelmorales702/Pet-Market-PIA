@@ -5,12 +5,11 @@ y traducen entre modelos de persistencia y agregados del dominio.
 """
 from __future__ import annotations
 
-from datetime import datetime
-from typing import List, Optional, Sequence
-from uuid import UUID, uuid4
+from typing import List, Optional
+from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
-from sqlalchemy import select
-from sqlalchemy.orm import Session, joinedload, selectinload
+from sqlalchemy import select, text
+from sqlalchemy.orm import Session, selectinload
 
 from src.application.ports import (
     RepositorioAlmacen,
@@ -30,9 +29,10 @@ from src.domain.entities import (
     LineaPedido,
     Surtido,
 )
+from src.domain.state_machine import EstadoPedido
 from src.domain.value_objects import (
-    DireccionEntrega,
     Dinero,
+    DireccionEntrega,
     EstadoDevolucion,
     EstadoEnvio,
     EstadoPago,
@@ -41,7 +41,7 @@ from src.domain.value_objects import (
     MotivoDevolucion,
     Sku,
 )
-from src.domain.state_machine import EstadoPedido
+
 from .models import (
     AlmacenModel,
     ClienteModel,
@@ -59,6 +59,34 @@ from .models import (
     SurtidoModel,
 )
 
+# =============================================================================
+# HELPERS DE IDS ESTABLES
+# =============================================================================
+
+def _ids_estables(parent_id: UUID, items: list) -> list[UUID]:
+    """Genera IDs deterministas para una lista de items.
+
+    Los IDs se generan con uuid5(NAMESPACE_URL, f"{parent_id}:{sku}:{n}")
+    donde n es la posición (0-based) del item en la lista.
+
+    Args:
+        parent_id: UUID del agregado padre (pedido_id o surtido_id)
+        items: Lista de items (líneas de pedido o surtidos)
+
+    Returns:
+        Lista de UUIDs deterministas en el mismo orden que items
+    """
+    ids = []
+    for n, item in enumerate(items):
+        # Para LineaPedido y LineaSurtido, el item tiene .sku como Sku object
+        key_value = getattr(item, 'sku', f'item_{n}')
+        key_str = str(key_value) if key_value else f'item_{n}'
+        # Generar UUID determinista: parent_id + sku + posición
+        id_str = f"{parent_id}:{key_str}:{n}"
+        stable_id = uuid5(NAMESPACE_URL, id_str)
+        ids.append(stable_id)
+    return ids
+
 
 # =============================================================================
 # MAPPERS: Persistencia <-> Dominio
@@ -75,7 +103,6 @@ def _map_direccion_to_domain(model: DireccionModel) -> DireccionEntrega:
 
 
 def _map_direccion_from_domain(direccion: DireccionEntrega, cliente_id: UUID, id: Optional[UUID] = None) -> DireccionModel:
-    from uuid import uuid4
     return DireccionModel(
         id=id or uuid4(),
         cliente_id=cliente_id,
@@ -99,7 +126,6 @@ def _map_cliente_to_domain(model: ClienteModel) -> Cliente:
 
 
 def _map_cliente_from_domain(cliente: Cliente) -> ClienteModel:
-    from uuid import uuid4
     model = ClienteModel(
         id=cliente.id,
         nombre=cliente.nombre,
@@ -123,7 +149,6 @@ def _map_producto_to_domain(model: ProductoModel) -> Producto:
 
 
 def _map_producto_from_domain(producto: Producto) -> ProductoModel:
-    from uuid import uuid4
     return ProductoModel(
         id=producto.id,
         sku=str(producto.sku),
@@ -147,7 +172,6 @@ def _map_existencia_to_domain(model: ExistenciaModel) -> ExistenciaProducto:
 
 
 def _map_existencia_from_domain(existencia: ExistenciaProducto) -> ExistenciaModel:
-    from uuid import uuid4
     return ExistenciaModel(
         id=uuid4(),
         almacen_id=existencia.almacen_id,
@@ -172,7 +196,6 @@ def _map_almacen_to_domain(model: AlmacenModel) -> Almacen:
 
 
 def _map_almacen_from_domain(almacen: Almacen) -> AlmacenModel:
-    from uuid import uuid4
     model = AlmacenModel(
         id=almacen.id,
         nombre=almacen.nombre,
@@ -191,9 +214,12 @@ def _map_linea_pedido_to_domain(model: LineaPedidoModel) -> LineaPedido:
 
 
 def _map_linea_pedido_from_domain(linea: LineaPedido, pedido_id: UUID, id: Optional[UUID] = None) -> LineaPedidoModel:
-    from uuid import uuid4
+    from uuid import NAMESPACE_URL, uuid5
+    # Usar ID determinista si no se proporciona
+    if id is None:
+        id = uuid5(NAMESPACE_URL, f"{pedido_id}:{linea.sku}:{0}")
     return LineaPedidoModel(
-        id=id or uuid4(),
+        id=id,
         pedido_id=pedido_id,
         sku=str(linea.sku),
         cantidad=linea.cantidad,
@@ -203,7 +229,7 @@ def _map_linea_pedido_from_domain(linea: LineaPedido, pedido_id: UUID, id: Optio
 
 
 def _map_surtido_to_domain(model: SurtidoModel) -> Surtido:
-    lineas = [_map_linea_pedido_to_domain(l) for l in model.lineas]
+    lineas = [_map_linea_pedido_to_domain(linea) for linea in model.lineas]
     return Surtido(
         id=model.id,
         pedido_id=model.pedido_id,
@@ -214,7 +240,6 @@ def _map_surtido_to_domain(model: SurtidoModel) -> Surtido:
 
 
 def _map_surtido_from_domain(surtido: Surtido) -> SurtidoModel:
-    from uuid import uuid4
     return SurtidoModel(
         id=surtido.id,
         pedido_id=surtido.pedido_id,
@@ -224,7 +249,7 @@ def _map_surtido_from_domain(surtido: Surtido) -> SurtidoModel:
 
 
 def _map_pedido_to_domain(model: PedidoModel) -> Pedido:
-    lineas = [_map_linea_pedido_to_domain(l) for l in model.lineas]
+    lineas = [_map_linea_pedido_to_domain(linea) for linea in model.lineas]
     direccion = DireccionEntrega(
         calle=model.direccion_calle,
         numero=model.direccion_numero,
@@ -249,7 +274,6 @@ def _map_pedido_to_domain(model: PedidoModel) -> Pedido:
 
 
 def _map_pedido_from_domain(pedido: Pedido) -> PedidoModel:
-    from uuid import uuid4
     return PedidoModel(
         id=pedido.id,
         cliente_id=pedido.cliente_id,
@@ -280,7 +304,6 @@ def _map_pago_to_domain(model: PagoModel) -> Pago:
 
 
 def _map_pago_from_domain(pago: Pago) -> PagoModel:
-    from uuid import uuid4
     return PagoModel(
         id=pago.id,
         pedido_id=pago.pedido_id,
@@ -306,7 +329,6 @@ def _map_intento_to_domain(model: IntentoEntregaModel) -> IntentoEntrega:
 
 
 def _map_intento_from_domain(intento: IntentoEntrega, envio_id: UUID, id: Optional[UUID] = None) -> IntentoEntregaModel:
-    from uuid import uuid4
     return IntentoEntregaModel(
         id=id or uuid4(),
         envio_id=envio_id,
@@ -331,7 +353,6 @@ def _map_envio_to_domain(model: EnvioModel) -> Envio:
 
 
 def _map_envio_from_domain(envio: Envio) -> EnvioModel:
-    from uuid import uuid4
     return EnvioModel(
         id=envio.id,
         pedido_id=envio.pedido_id,
@@ -350,7 +371,6 @@ def _map_linea_devolucion_to_domain(model: LineaDevolucionModel) -> LineaDevoluc
 
 
 def _map_linea_devolucion_from_domain(linea: LineaDevolucion, devolucion_id: UUID, id: Optional[UUID] = None) -> LineaDevolucionModel:
-    from uuid import uuid4
     return LineaDevolucionModel(
         id=id or uuid4(),
         devolucion_id=devolucion_id,
@@ -360,7 +380,7 @@ def _map_linea_devolucion_from_domain(linea: LineaDevolucion, devolucion_id: UUI
 
 
 def _map_devolucion_to_domain(model: DevolucionModel) -> Devolucion:
-    lineas = [_map_linea_devolucion_to_domain(l) for l in model.lineas]
+    lineas = [_map_linea_devolucion_to_domain(linea) for linea in model.lineas]
     return Devolucion(
         id=model.id,
         pedido_id=model.pedido_id,
@@ -375,7 +395,6 @@ def _map_devolucion_to_domain(model: DevolucionModel) -> Devolucion:
 
 
 def _map_devolucion_from_domain(devolucion: Devolucion) -> DevolucionModel:
-    from uuid import uuid4
     return DevolucionModel(
         id=devolucion.id,
         pedido_id=devolucion.pedido_id,
@@ -433,7 +452,7 @@ class SqlAlchemyRepositorioProducto(RepositorioProducto):
         return _map_producto_to_domain(model) if model else None
 
     def obtener_activos(self) -> List[Producto]:
-        stmt = select(ProductoModel).where(ProductoModel.activo == True)
+        stmt = select(ProductoModel).where(ProductoModel.activo)
         models = self._session.execute(stmt).scalars().all()
         return [_map_producto_to_domain(m) for m in models]
 
@@ -451,7 +470,7 @@ class SqlAlchemyRepositorioAlmacen(RepositorioAlmacen):
         model = _map_almacen_from_domain(almacen)
         self._session.merge(model)
         # Guardar existencias - buscar por (almacen_id, sku) y actualizar o crear
-        from sqlalchemy import select, or_
+        from sqlalchemy import select
         for ex in almacen.existencias.values():
             stmt = select(ExistenciaModel).where(
                 ExistenciaModel.almacen_id == almacen.id,
@@ -494,17 +513,33 @@ class SqlAlchemyRepositorioPedido(RepositorioPedido):
     def guardar(self, pedido: Pedido) -> None:
         model = _map_pedido_from_domain(pedido)
         self._session.merge(model)
-        # Guardar líneas
-        for linea in pedido.lineas:
-            linea_model = _map_linea_pedido_from_domain(linea, pedido.id)
+
+        # === Guardar líneas con IDs estables ===
+        linea_ids = _ids_estables(pedido.id, pedido.lineas)
+        for linea, linea_id in zip(pedido.lineas, linea_ids, strict=False):
+            linea_model = _map_linea_pedido_from_domain(linea, pedido.id, id=linea_id)
             self._session.merge(linea_model)
-        # Guardar surtidos
+
+        # === Eliminar líneas que ya no existen ===
+        # Calcular IDs que deberían existir
+        if linea_ids:
+            ids_a_conservar = set(linea_ids)
+            # Construir placeholders para el IN
+            ids_placeholders = ",".join([f":id_{i}" for i in range(len(ids_a_conservar))])
+            delete_stmt = text(f"DELETE FROM lineas_pedido WHERE pedido_id = :pedido_id AND id NOT IN ({ids_placeholders})")
+            params = {"pedido_id": pedido.id, **{f"id_{i}": id for i, id in enumerate(ids_a_conservar)}}
+            self._session.execute(delete_stmt, params)
+
+        # === Guardar surtidos con sus líneas ===
         for surtido in pedido.surtidos:
             surtido_model = _map_surtido_from_domain(surtido)
             self._session.merge(surtido_model)
-            for linea in surtido.lineas:
+
+            # === Líneas de surtido con IDs estables ===
+            linea_surtido_ids = _ids_estables(surtido.id, surtido.lineas)
+            for linea, linea_id in zip(surtido.lineas, linea_surtido_ids, strict=False):
                 linea_surtido_model = LineaSurtidoModel(
-                    id=linea.__dict__.get('_id') or uuid4(),
+                    id=linea_id,
                     surtido_id=surtido.id,
                     sku=str(linea.sku),
                     cantidad=linea.cantidad,
@@ -512,6 +547,14 @@ class SqlAlchemyRepositorioPedido(RepositorioPedido):
                     precio_unitario_moneda=linea.precio_unitario.moneda,
                 )
                 self._session.merge(linea_surtido_model)
+
+            # === Eliminar líneas de surtido que ya no existen ===
+            if linea_surtido_ids:
+                ids_surtido_a_conservar = set(linea_surtido_ids)
+                ids_placeholders = ",".join([f":id_{i}" for i in range(len(ids_surtido_a_conservar))])
+                delete_stmt = text(f"DELETE FROM lineas_surtido WHERE surtido_id = :surtido_id AND id NOT IN ({ids_placeholders})")
+                params = {"surtido_id": surtido.id, **{f"id_{i}": id for i, id in enumerate(ids_surtido_a_conservar)}}
+                self._session.execute(delete_stmt, params)
 
     def obtener_por_id(self, pedido_id: UUID) -> Optional[Pedido]:
         stmt = select(PedidoModel).where(PedidoModel.id == pedido_id).options(
@@ -608,9 +651,12 @@ class SqlAlchemyRepositorioSurtido(RepositorioSurtido):
     def guardar(self, surtido: Surtido) -> None:
         model = _map_surtido_from_domain(surtido)
         self._session.merge(model)
-        for linea in surtido.lineas:
+
+        # === Líneas de surtido con IDs estables ===
+        linea_ids = _ids_estables(surtido.id, surtido.lineas)
+        for linea, linea_id in zip(surtido.lineas, linea_ids, strict=False):
             linea_model = LineaSurtidoModel(
-                id=linea.__dict__.get('_id') or uuid4(),
+                id=linea_id,
                 surtido_id=surtido.id,
                 sku=str(linea.sku),
                 cantidad=linea.cantidad,
@@ -618,6 +664,14 @@ class SqlAlchemyRepositorioSurtido(RepositorioSurtido):
                 precio_unitario_moneda=linea.precio_unitario.moneda,
             )
             self._session.merge(linea_model)
+
+        # === Eliminar líneas de surtido que ya no existen ===
+        if linea_ids:
+            ids_a_conservar = set(linea_ids)
+            ids_placeholders = ",".join([f":id_{i}" for i in range(len(ids_a_conservar))])
+            delete_stmt = text(f"DELETE FROM lineas_surtido WHERE surtido_id = :surtido_id AND id NOT IN ({ids_placeholders})")
+            params = {"surtido_id": surtido.id, **{f"id_{i}": id for i, id in enumerate(ids_a_conservar)}}
+            self._session.execute(delete_stmt, params)
 
     def obtener_por_id(self, surtido_id: UUID) -> Optional[Surtido]:
         stmt = select(SurtidoModel).where(SurtidoModel.id == surtido_id).options(selectinload(SurtidoModel.lineas))

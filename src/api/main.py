@@ -7,17 +7,18 @@ Rutas en español y en plural según convención del proyecto.
 """
 from __future__ import annotations
 
-import os
 import logging
+import os
 from datetime import datetime
 from decimal import Decimal
 from typing import Optional
-from uuid import UUID, uuid4
+from uuid import UUID
 
-from fastapi import FastAPI, Depends, HTTPException, Header, status, Body
-from fastapi.responses import JSONResponse
+from fastapi import Body, Depends, FastAPI, Header, HTTPException, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field, field_validator, ValidationError
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field, ValidationError, field_validator
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -28,41 +29,38 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-from src.domain.aggregates import (
-    Almacen, Cliente, Devolucion, Envio, Pago, Pedido, Producto
-)
-from src.domain.entities import LineaPedido, LineaDevolucion, Surtido
-from src.domain.value_objects import (
-    DireccionEntrega, Dinero, Sku, MotivoDevolucion, Guia
-)
-from src.domain.exceptions import (
-    TransicionEstadoInvalidaException,
-    CancelacionNoPermitidaError,
-    DevolucionNoPermitidaError,
-    StockInsuficienteError,
-    PedidoNoEncontradoError,
-    DevolucionNoEncontradoError,
-    AlmacenNoEncontradoError,
-    SurtidoNoEncontradoError,
-)
-from src.application.ports import (
-    UnitOfWork, PasarelaPago, ResultadoPago, PublicadorEventos
-)
-from src.application.use_cases import (
-    ConfirmarCheckoutUseCase,
-    ProcesarPagoUseCase,
+# Imports de domain/application después de logging configurado (necesario para evitar ciclos)
+# pylint: disable=import-outside-toplevel  # noqa: E402
+from src.application.in_memory import InMemoryEventPublisher  # noqa: E402
+from src.application.ports import PasarelaPago, PublicadorEventos, ResultadoPago  # noqa: E402
+from src.application.use_cases import (  # noqa: E402
+    AutorizarDevolucionUseCase,
     CancelarPedidoUseCase,
-    IniciarYEmpacarSurtidoUseCase,
+    ConfirmarCheckoutUseCase,
+    ConsultarDiscrepanciaInventarioUseCase,
+    ConsultarEstadoPedidoUseCase,
     DespacharPedidoUseCase,
+    IniciarYEmpacarSurtidoUseCase,
+    ProcesarPagoUseCase,
+    ProcesarReembolsoUseCase,
     RegistrarEntregaUseCase,
     SolicitarDevolucionUseCase,
-    AutorizarDevolucionUseCase,
-    ProcesarReembolsoUseCase,
-    ConsultarEstadoPedidoUseCase,
-    ConsultarDiscrepanciaInventarioUseCase,
 )
-from src.infrastructure.persistence.uow import SqlAlchemyUnitOfWork
-from src.application.in_memory import InMemoryEventPublisher
+from src.domain.aggregates import Almacen, Devolucion, Envio, Pago, Pedido, Producto  # noqa: E402
+from src.domain.entities import LineaDevolucion, LineaPedido  # noqa: E402
+from src.domain.exceptions import (  # noqa: E402
+    AlmacenNoEncontradoError,
+    CancelacionNoPermitidaError,
+    DevolucionNoEncontradoError,
+    DevolucionNoPermitidaError,
+    PedidoNoEncontradoError,
+    ProductoNoEncontradoError,
+    StockInsuficienteError,
+    SurtidoNoEncontradoError,
+    TransicionEstadoInvalidaException,
+)
+from src.domain.value_objects import Dinero, DireccionEntrega, MotivoDevolucion, Sku  # noqa: E402
+from src.infrastructure.persistence.uow import SqlAlchemyUnitOfWork  # noqa: E402
 
 # Database configuration
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://petmarket_user:petmarket_pass@localhost:5432/petmarket_db")
@@ -149,6 +147,7 @@ EXCEPTION_HANDLERS = [
     (DevolucionNoEncontradoError, status.HTTP_404_NOT_FOUND, "DEVOLUCION_NO_ENCONTRADO"),
     (AlmacenNoEncontradoError, status.HTTP_404_NOT_FOUND, "ALMACEN_NO_ENCONTRADO"),
     (SurtidoNoEncontradoError, status.HTTP_404_NOT_FOUND, "SURTIDO_NO_ENCONTRADO"),
+    (ProductoNoEncontradoError, status.HTTP_404_NOT_FOUND, "PRODUCTO_NO_ENCONTRADO"),
 ]
 
 
@@ -162,7 +161,10 @@ def _get_error_handler(exc: Exception):
     for exc_class, http_code, error_code in EXCEPTION_HANDLERS:
         if isinstance(exc, exc_class):
             # Extraer el identificador relevante según el tipo de excepción
-            if hasattr(exc, 'pedido_id'):
+            if hasattr(exc, 'sku') and not hasattr(exc, 'solicitado'):
+                # ProductoNoEncontradoError (solo tiene sku, no solicitado/disponible)
+                mensaje = f"Producto con SKU '{exc.sku}' no encontrado"
+            elif hasattr(exc, 'pedido_id'):
                 mensaje = f"Pedido {exc.pedido_id} no encontrado"
             elif hasattr(exc, 'devolucion_id'):
                 mensaje = f"Devolución {exc.devolucion_id} no encontrada"
@@ -175,6 +177,8 @@ def _get_error_handler(exc: Exception):
             elif hasattr(exc, 'estado'):
                 # CancelacionNoPermitidaError y DevolucionNoPermitidaError
                 mensaje = f"No se puede cancelar un pedido en estado {exc.estado}"
+            elif hasattr(exc, 'solicitado') and hasattr(exc, 'disponible'):
+                mensaje = f"Stock insuficiente para SKU '{exc.sku}': solicitado {exc.solicitado}, disponible {exc.disponible}"
             else:
                 mensaje = str(exc)
             return http_code, error_code, mensaje
@@ -237,6 +241,13 @@ async def handle_surtido_no_encontrado(request, exc: SurtidoNoEncontradoError):
     return JSONResponse(status_code=http_code, content=_build_error_detail(error_code, mensaje))
 
 
+@app.exception_handler(ProductoNoEncontradoError)
+async def handle_producto_no_encontrado(request, exc: ProductoNoEncontradoError):
+    """Handle ProductoNoEncontradoError with 404 Not Found."""
+    http_code, error_code, mensaje = _get_error_handler(exc)
+    return JSONResponse(status_code=http_code, content=_build_error_detail(error_code, mensaje))
+
+
 @app.exception_handler(ValidationError)
 async def handle_validation_error(request, exc: ValidationError):
     """Handle Pydantic validation errors with 422 Unprocessable Entity."""
@@ -244,22 +255,51 @@ async def handle_validation_error(request, exc: ValidationError):
     errors = exc.errors()
     if errors:
         first_error = errors[0]
-        loc = ".".join(str(l) for l in first_error.get("loc", []))
+        loc = ".".join(str(loc_part) for loc_part in first_error.get("loc", []))
         msg = first_error.get("msg", "Error de validación")
         error_type = first_error.get("type", "value_error")
 
         # Mapear tipos de error a códigos más específicos
         if "sku" in loc.lower() or error_type == "value_error":
             codigo = "SKU_INVALIDO"
+        elif "codigo_postal" in loc:
+            codigo = "CODIGO_POSTAL_INVALIDO"
         else:
             codigo = "DATOS_INVALIDOS"
 
         return JSONResponse(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             content=_build_error_detail(codigo, msg)
         )
     return JSONResponse(
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        content=_build_error_detail("DATOS_INVALIDOS", "Error de validación")
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def handle_request_validation_error(request, exc: RequestValidationError):
+    """Handle FastAPI RequestValidationError with 422 Unprocessable Entity."""
+    errors = exc.errors()
+    if errors:
+        first_error = errors[0]
+        loc = ".".join(str(loc_part) for loc_part in first_error.get("loc", []))
+        msg = first_error.get("msg", "Error de validación")
+
+        # Mapear tipos de error a códigos más específicos
+        if "sku" in loc.lower():
+            codigo = "SKU_INVALIDO"
+        elif "codigo_postal" in loc:
+            codigo = "CODIGO_POSTAL_INVALIDO"
+        else:
+            codigo = "DATOS_INVALIDOS"
+
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            content=_build_error_detail(codigo, msg)
+        )
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         content=_build_error_detail("DATOS_INVALIDOS", "Error de validación")
     )
 
@@ -427,21 +467,21 @@ class PedidoResponse(BaseModel):
             },
             lineas=[
                 LineaPedidoResponse(
-                    sku=str(l.sku),
-                    cantidad=l.cantidad,
-                    precio_unitario=l.precio_unitario.monto,
+                    sku=str(linea.sku),
+                    cantidad=linea.cantidad,
+                    precio_unitario=linea.precio_unitario.monto,
                 )
-                for l in pedido.lineas
+                for linea in pedido.lineas
             ],
             surtidos=[
                 {
-                    "id": str(s.id),
-                    "pedido_id": str(s.pedido_id),
-                    "almacen_id": str(s.almacen_id),
-                    "estado": s.estado.value,
-                    "lineas": [{"sku": str(l.sku), "cantidad": l.cantidad} for l in s.lineas],
+                    "id": str(surtido.id),
+                    "pedido_id": str(surtido.pedido_id),
+                    "almacen_id": str(surtido.almacen_id),
+                    "estado": surtido.estado.value,
+                    "lineas": [{"sku": str(linea.sku), "cantidad": linea.cantidad} for linea in surtido.lineas],
                 }
-                for s in pedido.surtidos
+                for surtido in pedido.surtidos
             ],
             reintentos_pago=pedido.reintentos_pago,
         )
@@ -545,8 +585,8 @@ class DevolucionResponse(BaseModel):
             estado=devolucion.estado.value,
             motivo=devolucion.motivo.valor,
             lineas=[
-                {"sku": str(l.sku), "cantidad": l.cantidad}
-                for l in devolucion.lineas
+                {"sku": str(linea.sku), "cantidad": linea.cantidad}
+                for linea in devolucion.lineas
             ],
             fecha_solicitud=devolucion.fecha_solicitud,
         )
@@ -578,8 +618,27 @@ class FakePasarelaPago(PasarelaPago):
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint for deployment and orchestration."""
-    return {"status": "healthy", "service": "petmarket-api"}
+    """Health check endpoint - verifies database connectivity."""
+    try:
+        from fastapi import status
+        from sqlalchemy import text
+
+        # Check database connectivity
+        db_session = SessionLocal()
+        db_session.execute(text("SELECT 1"))
+        db_session.close()
+
+        return {
+            "status": "healthy",
+            "service": "petmarket-api",
+            "database": "connected"
+        }
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database connection failed"
+        )
 
 
 # --- Productos (Catálogo) - US-001 ---
@@ -610,19 +669,16 @@ async def obtener_producto(
     with uow:
         try:
             producto = uow.productos.obtener_por_sku(Sku.of(sku))
-        except ValueError as e:
+        except ValueError:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail={
                     "codigo": "SKU_INVALIDO",
                     "mensaje": f"Formato de SKU inválido: {sku}. El formato debe ser SKU-XXXXX (5 dígitos)"
                 }
             )
         if not producto:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail={"codigo": "PRODUCTO_NO_ENCONTRADO", "mensaje": f"Producto con SKU {sku} no encontrado"},
-            )
+            raise ProductoNoEncontradoError(sku)
         return ProductoSchema.from_domain(producto)
 
 
@@ -685,20 +741,14 @@ async def crear_pedido(
                 sku_vo = Sku.of(item.sku)
             except ValueError as e:
                 raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail={"codigo": "SKU_INVALIDO", "mensaje": str(e)}
                 )
 
             # Obtener producto del catálogo para obtener el precio
             producto = uow.productos.obtener_por_sku(sku_vo)
             if not producto:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail={
-                        "codigo": "PRODUCTO_NO_ENCONTRADO",
-                        "mensaje": f"Producto con SKU {item.sku} no encontrado en el catálogo"
-                    }
-                )
+                raise ProductoNoEncontradoError(item.sku)
 
             # Verificar que el SKU sea activo
             if not producto.activo:
@@ -743,11 +793,11 @@ async def crear_pedido(
 async def procesar_pago(
     pago_data: PagoProcesar = Body(...),
     uow: SqlAlchemyUnitOfWork = Depends(get_uow),
+    publisher: PublicadorEventos = Depends(get_event_publisher),
+    pasarela: PasarelaPago = Depends(get_pasarela_pago),
 ):
     """US-003, US-004: Procesar pago de un pedido."""
     with uow:
-        publisher = InMemoryEventPublisher()
-        pasarela = FakePasarelaPago()
         use_case = ProcesarPagoUseCase(uow, publisher, pasarela)
 
         pago = use_case.ejecutar(
@@ -881,12 +931,12 @@ async def listar_pedidos_cliente(
                 "moneda": pedido.total.moneda,
                 "surtidos": [
                     {
-                        "surtido_id": str(s.id),
-                        "almacen_id": str(s.almacen_id),
-                        "estado": s.estado.value,
-                        "lineas": [{"sku": str(l.sku), "cantidad": l.cantidad} for l in s.lineas],
+                        "surtido_id": str(surtido.id),
+                        "almacen_id": str(surtido.almacen_id),
+                        "estado": surtido.estado.value,
+                        "lineas": [{"sku": str(linea.sku), "cantidad": linea.cantidad} for linea in surtido.lineas],
                     }
-                    for s in pedido.surtidos
+                    for surtido in pedido.surtidos
                 ],
             }
             resultados.append(item)

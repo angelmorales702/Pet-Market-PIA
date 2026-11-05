@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.api.main import app
 
+
 def export_openapi():
     """Export the OpenAPI schema to a JSON file."""
     openapi_schema = app.openapi()

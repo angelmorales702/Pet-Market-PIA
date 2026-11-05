@@ -1,8 +1,10 @@
 """Tests para nuevas funcionalidades (US-016)."""
 from uuid import uuid4
+
 from src.domain.aggregates import Almacen
-from src.domain.value_objects import Sku
 from src.domain.events import DiscrepanciaInventarioDetectadaEvent
+from src.domain.value_objects import Sku
+
 
 def test_almacen_detectar_discrepancia() -> None:
     """US-016: Discrepancia inventario web vs físico."""

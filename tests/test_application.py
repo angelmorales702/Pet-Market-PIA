@@ -10,27 +10,27 @@ from uuid import uuid4
 
 import pytest
 
+from src.application.in_memory import (
+    FakePasarelaPago,
+    InMemoryEventPublisher,
+    InMemoryUnitOfWork,
+)
+from src.application.use_cases import (
+    AutorizarDevolucionUseCase,
+    CancelarPedidoUseCase,
+    ConfirmarCheckoutUseCase,
+    ConsultarDiscrepanciaInventarioUseCase,
+    ConsultarEstadoPedidoUseCase,
+    DespacharPedidoUseCase,
+    IniciarYEmpacarSurtidoUseCase,
+    ProcesarPagoUseCase,
+    ProcesarReembolsoUseCase,
+    RegistrarEntregaUseCase,
+    SolicitarDevolucionUseCase,
+)
 from src.domain.aggregates import Almacen
 from src.domain.entities import LineaDevolucion, LineaPedido
-from src.domain.value_objects import DireccionEntrega, Dinero, MotivoDevolucion, Sku
-from src.application.use_cases import (
-     ConfirmarCheckoutUseCase,
-     ProcesarPagoUseCase,
-     CancelarPedidoUseCase,
-     IniciarYEmpacarSurtidoUseCase,
-     DespacharPedidoUseCase,
-     RegistrarEntregaUseCase,
-     SolicitarDevolucionUseCase,
-     AutorizarDevolucionUseCase,
-     ProcesarReembolsoUseCase,
-     ConsultarEstadoPedidoUseCase,
-     ConsultarDiscrepanciaInventarioUseCase,
-)
-from src.application.in_memory import (
-     InMemoryUnitOfWork,
-     FakePasarelaPago,
-     InMemoryEventPublisher,
-)
+from src.domain.value_objects import Dinero, DireccionEntrega, MotivoDevolucion, Sku
 
 
 @pytest.fixture
@@ -109,6 +109,43 @@ def test_cancelar_pedido_antes_de_preparacion(setup_uow_and_almacen) -> None:
     pedido_cancelado = cancel_uc.ejecutar(pedido.id, "Cliente se arrepintió")
 
     assert pedido_cancelado.estado.value == "CANCELADO"
+
+
+def test_cancelar_pedido_pagado_reposa_stock(setup_uow_and_almacen) -> None:
+    """US-008: Cancelar pedido PAGADO repone el stock confirmado.
+
+    Cuando un pedido ya pagado (stock confirmado) se cancela:
+    - El stock inicial era 10
+    - Se reservó 2 unidades
+    - Se confirmó la venta (descuento de stock real): 10 - 2 = 8 disponibles
+    - Al cancelar, se debe reponer: 8 + 2 = 10 disponibles
+    """
+    uow, publisher, almacen, sku = setup_uow_and_almacen
+    sku = Sku.of("SKU-10002")
+    almacen.agregar_existencia(uuid4(), sku, 10)
+    uow.almacenes.guardar(almacen)
+    uow.commit()
+
+    # 1. Checkout
+    checkout_uc = ConfirmarCheckoutUseCase(uow, publisher)
+    pedido = checkout_uc.ejecutar(uuid4(), [LineaPedido(sku, 2, Dinero(100, "MXN"))], DireccionEntrega("Calle", "1", "Col", "Mty", "64000"))
+
+    # 2. Pago aprobado
+    pasarela = FakePasarelaPago(siempre_aprobado=True)
+    pago_uc = ProcesarPagoUseCase(uow, publisher, pasarela)
+    pago_uc.ejecutar(pedido.id, "tarjeta", {"token": "tok_123"})
+
+    # Verificar stock confirmado
+    assert almacen.obtener_existencia(sku).cantidad_disponible == 8
+
+    # 3. Cancelar pedido PAGADO
+    cancel_uc = CancelarPedidoUseCase(uow, publisher)
+    pedido_cancelado = cancel_uc.ejecutar(pedido.id, "Cambio de opinión")
+
+    assert pedido_cancelado.estado.value == "CANCELADO"
+
+    # 4. Verificar que el stock se repuso
+    assert almacen.obtener_existencia(sku).cantidad_disponible == 10
 
 
 def test_iniciar_y_empacar_surtido_use_case(setup_uow_and_almacen) -> None:

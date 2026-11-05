@@ -12,19 +12,21 @@ Orquestan:
 from __future__ import annotations
 
 from datetime import datetime
-from typing import List, Optional
+from typing import Optional
 from uuid import UUID
 
-from src.domain.aggregates import Almacen, Devolucion, Envio, Pago, Pedido
+from src.domain.aggregates import Devolucion, Envio, Pago, Pedido
 from src.domain.entities import LineaDevolucion, LineaPedido
 from src.domain.exceptions import (
+    AlmacenNoEncontradoError,
+    DevolucionNoEncontradoError,
     DevolucionNoPermitidaError,
     PedidoNoEncontradoError,
-    DevolucionNoEncontradoError,
-    AlmacenNoEncontradoError,
 )
-from src.domain.services import AsignacionAlmacenService, CalendarioDiasHabiles, Reloj
-from src.domain.value_objects import DireccionEntrega, Dinero, Guia, MotivoDevolucion, Sku
+from src.domain.services import AsignacionAlmacenService, CalendarioDiasHabiles, Reloj, RelojSistema
+from src.domain.state_machine import EstadoPedido
+from src.domain.value_objects import DireccionEntrega, Guia, MotivoDevolucion, Sku
+
 from .ports import (
     PasarelaPago,
     PublicadorEventos,
@@ -59,7 +61,7 @@ class ConfirmarCheckoutUseCase:
                 from src.domain.exceptions import StockInsuficienteError
                 # Encontrar el SKU con stock insuficiente
                 sku_str = str(pedido.lineas[0].sku)
-                solicitud = sum(l.cantidad for l in pedido.lineas)
+                solicitud = sum(linea.cantidad for linea in pedido.lineas)
                 disponible = 0
                 for almacen in almacenes:
                     ex = almacen.obtener_existencia(pedido.lineas[0].sku)
@@ -310,7 +312,7 @@ class RegistrarEntregaUseCase:
             if not envio:
                 envio = Envio.crear(pedido_id=pedido.id)
 
-            intento = envio.registrar_intento(exitoso=exitoso, observaciones=observaciones)
+            envio.registrar_intento(exitoso=exitoso, observaciones=observaciones)
 
             if exitoso:
                 pedido.registrar_intento_entrega(exitoso=True, observaciones=observaciones)
@@ -332,10 +334,11 @@ class RegistrarEntregaUseCase:
 class SolicitarDevolucionUseCase:
     """US-013, US-014: Solicita una devolución dentro de la ventana de 5 días hábiles."""
 
-    def __init__(self, uow: UnitOfWork, event_publisher: PublicadorEventos, calendario: Optional[CalendarioDiasHabiles] = None):
+    def __init__(self, uow: UnitOfWork, event_publisher: PublicadorEventos, calendario: Optional[CalendarioDiasHabiles] = None, reloj: Optional[Reloj] = None):
         self._uow = uow
         self._publisher = event_publisher
         self._calendario = calendario
+        self._reloj = reloj or RelojSistema()
 
     def ejecutar(self, pedido_id: UUID, lineas: list[LineaDevolucion], motivo: MotivoDevolucion, fecha_entrega: datetime) -> Devolucion:
         with self._uow as uow:
@@ -346,10 +349,10 @@ class SolicitarDevolucionUseCase:
             devolucion = Devolucion.solicitar(pedido_id=pedido.id, lineas=lineas, motivo=motivo)
 
             # Verificar ventana de 5 días hábiles
-            if not devolucion.esta_dentro_ventana(fecha_entrega):
+            if not devolucion.esta_dentro_ventana(fecha_entrega, calendario=self._calendario, reloj=self._reloj):
                 raise DevolucionNoPermitidaError("Fuera de la ventana de 5 días hábiles")
 
-            pedido_devolucion_id = pedido.solicitar_devolucion(motivo)
+            pedido.solicitar_devolucion(motivo)
 
             uow.pedidos.guardar(pedido)
             uow.devoluciones.guardar(devolucion)
@@ -409,6 +412,10 @@ class ProcesarReembolsoUseCase:
 
             devolucion.confirmar_recepcion_almacen()
 
+            pedido = uow.pedidos.obtener_por_id(devolucion.pedido_id)
+            if not pedido:
+                raise PedidoNoEncontradoError(str(devolucion.pedido_id))
+
             pago = uow.pagos.obtener_por_pedido(devolucion.pedido_id)
             if pago:
                 resultado = self._pasarela.reembolsar("TRANS_REF", pago.monto)
@@ -418,6 +425,10 @@ class ProcesarReembolsoUseCase:
 
             devolucion.marcar_reembolsado()
             uow.devoluciones.guardar(devolucion)
+
+            # US-015: Cerrar pedido al completar reembolso
+            pedido._transicionar(EstadoPedido.DEVUELTO)
+            uow.pedidos.guardar(pedido)
 
             eventos = devolucion.clear_domain_events()
             if pago:
@@ -449,12 +460,12 @@ class ConsultarEstadoPedidoUseCase:
                 },
                 "surtidos": [
                     {
-                        "surtido_id": str(s.id),
-                        "almacen_id": str(s.almacen_id),
-                        "estado": s.estado.value,
-                        "lineas": [{"sku": str(l.sku), "cantidad": l.cantidad} for l in s.lineas],
+                        "surtido_id": str(surtido.id),
+                        "almacen_id": str(surtido.almacen_id),
+                        "estado": surtido.estado.value,
+                        "lineas": [{"sku": str(linea.sku), "cantidad": linea.cantidad} for linea in surtido.lineas],
                     }
-                    for s in pedido.surtidos
+                    for surtido in pedido.surtidos
                 ],
                 "envio_estado": envio.estado.value if envio else "SIN_ENVIO",
                 "pago_estado": pago.estado.value if pago else "SIN_PAGO",

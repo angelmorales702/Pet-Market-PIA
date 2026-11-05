@@ -19,6 +19,7 @@ PetMarket API expone un contrato de errores explícito con códigos HTTP especí
 | `DevolucionNoEncontradoError` | 404 | `DEVOLUCION_NO_ENCONTRADO` | Devolución {id} no encontrada |
 | `AlmacenNoEncontradoError` | 404 | `ALMACEN_NO_ENCONTRADO` | Almacén {id} no encontrado |
 | `SurtidoNoEncontradoError` | 404 | `SURTIDO_NO_ENCONTRADO` | Surtido {id} no encontrado |
+| `ProductoNoEncontradoError` | 404 | `PRODUCTO_NO_ENCONTRADO` | Producto con SKU '{sku}' no encontrado |
 
 ### 409 Conflict - Errores de negocio
 
@@ -73,6 +74,36 @@ Todas las respuestas de error siguen el formato:
 }
 ```
 
+#### Producto no encontrado
+```json
+{
+  "detail": {
+    "codigo": "PRODUCTO_NO_ENCONTRADO",
+    "mensaje": "Producto con SKU 'SKU-99999' no encontrado"
+  }
+}
+```
+
+#### Devolución no encontrada
+```json
+{
+  "detail": {
+    "codigo": "DEVOLUCION_NO_ENCONTRADO",
+    "mensaje": "Devolución 12345678-1234-1234-1234-123456789012 no encontrada"
+  }
+}
+```
+
+#### Surtido no encontrado
+```json
+{
+  "detail": {
+    "codigo": "SURTIDO_NO_ENCONTRADO",
+    "mensaje": "Surtido 12345678-1234-1234-1234-123456789012 no encontrado"
+  }
+}
+```
+
 ### 409 Conflicto de estado
 
 #### Transición de estado inválida
@@ -95,22 +126,22 @@ Todas las respuestas de error siguen el formato:
 }
 ```
 
-#### Stock insuficiente
-```json
-{
-  "detail": {
-    "codigo": "STOCK_INSUFICIENTE",
-    "mensaje": "Stock insuficiente para SKU 'SKU-00001': solicitado 10, disponible 5"
-  }
-}
-```
-
 #### Devolución no permitida
 ```json
 {
   "detail": {
     "codigo": "DEVOLUCION_NO_PERMITIDA",
     "mensaje": "La devolución no está permitida para un pedido en estado PAGADO"
+  }
+}
+```
+
+#### Stock insuficiente
+```json
+{
+  "detail": {
+    "codigo": "STOCK_INSUFICIENTE",
+    "mensaje": "Stock insuficiente para SKU 'SKU-00001': solicitado 10, disponible 5"
   }
 }
 ```
@@ -139,10 +170,28 @@ Todas las respuestas de error siguen el formato:
 
 ## Manejo de excepciones en el código
 
-Según el principio de arquitectura, los endpoints NO deben lanzar excepciones de dominio directamente. En su lugar:
+Según el principio de arquitectura, los endpoints deben lanzar excepciones de dominio en vez de `ValueError` o `HTTPException` sin mapear. Los manejadores de excepciones de FastAPI traducen estas a respuestas HTTP.
 
-1. Los casos de uso lanzan excepciones de dominio específicas
-2. Los manejadores de excepciones de FastAPI traducen estas a respuestas HTTP
+### Reglas de mapeo
+
+| Error "no encontrado" | Excepciones de dominio  | Código HTTP |
+|---|---|---|
+| Pedido no encontrado | `PedidoNoEncontradoError` | 404 |
+| Devolución no encontrada | `DevolucionNoEncontradoError` | 404 |
+| Almacén no encontrado | `AlmacenNoEncontradoError` | 404 |
+| Surtido no encontrado | `SurtidoNoEncontradoError` | 404 |
+| Producto no encontrado | `ProductoNoEncontradoError` | 404 |
+
+| Error de negocio | Excepciones de dominio | Código HTTP |
+|---|---|---|
+| Transición de estado inválida | `TransicionEstadoInvalidaException` | 409 |
+| Cancelación no permitida | `CancelacionNoPermitidaError` | 409 |
+| Devolución no permitida | `DevolucionNoPermitidaError` | 409 |
+| Stock insuficiente | `StockInsuficienteError` | 409 |
+
+### Endpoints con HTTPException (legacy)
+
+Algunos endpoints aún usan `HTTPException` directamente para casos específicos que no representan errores de dominio (ej: producto inactivo). El handler `handle_http_exception` asegura que sigan el formato `{"detail": {"codigo": "...", "mensaje": "..."}}` sin exponer 500.
 
 Ejemplo correcto:
 ```python
@@ -153,7 +202,7 @@ def ejecutar(self, pedido_id: UUID, ...) -> Pedido:
         raise PedidoNoEncontradoError(str(pedido_id))  # Excepción de dominio
     ...
 
-# En el endpoint (NO debe lanzar ValueError)
+# En el endpoint
 async def cancelar_pedido(pedido_id: UUID, ...):
     use_case = CancelarPedidoUseCase(uow, publisher)
     pedido = use_case.ejecutar(pedido_id, motivo, autorizado)

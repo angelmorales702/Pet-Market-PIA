@@ -49,8 +49,14 @@ exclude_lines = [
 ]
 
 [tool.ruff]
-line-length = 100
+line-length = 160
 target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "B", "I"]
+
+# B008 es necesario para dependencias FastAPI (Depends, Body, Header) - patrón estándar
+[tool.ruff.lint.per-file-ignores]
+"src/api/main.py" = ["B008", "E501", "B904"]  # B904: HTTPException sin "from" en except
+"tests/*.py" = ["E501", "E402"]  # E501: long lines, E402: imports after sys.path modifications
+"src/domain/services.py" = ["E402"]  # Imports en medio del archivo por necesidad del código

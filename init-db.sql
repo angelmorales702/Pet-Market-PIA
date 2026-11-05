@@ -1,8 +1,17 @@
--- Script de inicialización para bases de datos
--- Crea la base de datos de test si no existe
+-- Script de inicialización para bases de datos PostgreSQL
+-- Se ejecuta automáticamente cuando se crea el volumen
 
--- Nota: PostgreSQL crea automáticamente las bases de datos especificadas en POSTGRES_DB
--- Este archivo puede ser usado para crear tablas o extensiones adicionales
-
--- Ejemplo: Crear extensión para UUIDs
+-- Extensión para UUIDs
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+-- Crear base de datos de test (para CI/CD y testing)
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'petmarket_test') THEN
+        CREATE DATABASE petmarket_test;
+    END IF;
+END
+$$;
+
+-- Conceder privilegios en la base de test
+-- (se ejecuta como postgres user)

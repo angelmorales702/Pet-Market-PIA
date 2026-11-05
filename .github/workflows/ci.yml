@@ -40,7 +40,9 @@ jobs:
           pip install pytest pytest-cov ruff httpx python-dotenv
 
       - name: Ruff
-        run: ruff check src tests
+        run: |
+         ruff --version
+         ruff check src tests --diff
 
       - name: Create test database
         run: |

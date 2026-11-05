@@ -51,6 +51,7 @@ jobs:
       - name: Run migrations on test database
         env:
           DATABASE_URL: postgresql://petmarket_user:petmarket_pass@localhost:5432/petmarket_test
+          PYTHONPATH: .
         run: python -m alembic upgrade head
 
       - name: Pytest with coverage gate (80 percent)

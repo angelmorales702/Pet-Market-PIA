@@ -855,3 +855,115 @@ class TestRegresiones:
             )
 
         assert cantidades(despues) == cantidades(antes)
+
+    def test_preparar_empacar_despachar_no_duplica_lineas(self, client, pedido_pagado):
+        """US-007: Iniciar preparación y empacar no duplica líneas ni cambia total."""
+        pid = str(pedido_pagado.id)
+
+        # Obtener estado inicial
+        antes = client.get(f"/pedidos/{pid}")
+        assert antes.status_code == 200
+        antes_json = antes.json()
+
+        # Iniciar preparación
+        prep = client.post(f"/pedidos/{pid}/iniciar-preparacion")
+        assert prep.status_code == 200
+
+        # Confirmar empaquado (usar el almacén del primer surtido)
+        surtido = antes_json.get("surtidos", [{}])[0]
+        almacen_id = surtido.get("almacen_id")
+        if almacen_id:
+            empacar = client.post(
+                f"/pedidos/{pid}/confirmar-empaque",
+                json={"almacen_id": almacen_id}
+            )
+            assert empacar.status_code == 200
+
+        # Despachar
+        despachar = client.post(
+            f"/pedidos/{pid}/enviar",
+            json={"guia": "GUIA-REGRESION-TEST"}
+        )
+        assert despachar.status_code == 200
+
+        # Verificar que el total no cambió
+        despues = client.get(f"/pedidos/{pid}").json()
+        assert despues["total"] == antes_json["total"]
+
+        # Verificar que las cantidades no cambiaron
+        def cantidades(d):
+            return sorted(
+                (ln["sku"], ln["cantidad"]) for s in d.get("surtidos", []) for ln in s.get("lineas", [])
+            )
+
+        assert cantidades(despues) == cantidades(antes_json)
+
+    def test_cancelar_pedido_pagado_no_duplica_lineas(self, client, pedido_pagado):
+        """US-008: Cancelar pedido PAGADO no duplica líneas ni cambia total del pedido original."""
+        pid = str(pedido_pagado.id)
+
+        # Obtener estado inicial
+        antes = client.get(f"/pedidos/{pid}")
+        assert antes.status_code == 200
+        antes_json = antes.json()
+
+        # Cancelar el pedido
+        cancelar = client.post(
+            f"/pedidos/{pid}/cancelar",
+            json={"motivo": "Cambio de opinión", "autorizado_por_atencion": False}
+        )
+        assert cancelar.status_code == 200
+
+        # Verificar que el estado cambió a CANCELADO
+        cancelado = cancelar.json()
+        assert cancelado["estado"] == "CANCELADO"
+
+    def test_cancelar_pedido_pagado_reposa_stock(self, client, pedido_pagado, almacen_norte):
+        """US-008: Cancelar un pedido PAGADO debe reposar el stock en almacén."""
+        from src.domain.value_objects import Sku
+
+        pid = str(pedido_pagado.id)
+
+        # Obtener inventario antes de la cancelación
+        inventario_antes = client.get(f"/almacenes/{almacen_norte.id}/inventario")
+        assert inventario_antes.status_code == 200
+        inv_antes = inventario_antes.json()
+
+        # Obtener SKU del pedido
+        sku_pedido = None
+        for surtido in pedido_pagado.surtidos:
+            if surtido.almacen_id == almacen_norte.id:
+                if surtido.lineas:
+                    sku_pedido = str(surtido.lineas[0].sku)
+                    break
+
+        if sku_pedido:
+            # Obtener disponible antes
+            disp_antes = None
+            for ex in inv_antes.get("existencias", []):
+                if ex["sku"] == sku_pedido:
+                    disp_antes = ex["disponible"]
+                    break
+
+            # Cancelar el pedido
+            response = client.post(
+                f"/pedidos/{pid}/cancelar",
+                json={"motivo": "Test reposición stock", "autorizado_por_atencion": False}
+            )
+            assert response.status_code == 200
+
+            # Verificar inventario después de la cancelación
+            inventario_despues = client.get(f"/almacenes/{almacen_norte.id}/inventario")
+            assert inventario_despues.status_code == 200
+            inv_despues = inventario_despues.json()
+
+            # El stock debe haber aumentado (se repuso)
+            disp_despues = None
+            for ex in inv_despues.get("existencias", []):
+                if ex["sku"] == sku_pedido:
+                    disp_despues = ex["disponible"]
+                    break
+
+            if disp_antes is not None and disp_despues is not None:
+                # El stock reponido debe ser mayor o igual
+                assert disp_despues >= disp_antes

@@ -2,10 +2,9 @@ name: CI/CD Pipeline - PetMarket
 
 on:
   push:
-    branches: [ main, master, fix/tests-api ]
+    branches: [ main, master ]
   pull_request:
     branches: [ main, master ]
-  workflow_dispatch:
 
 jobs:
   lint-and-test:
@@ -42,8 +41,8 @@ jobs:
 
       - name: Ruff
         run: |
-         ruff --version
-         ruff check src tests --diff
+          ruff --version
+          ruff check src tests --diff
 
       - name: Create test database
         run: |

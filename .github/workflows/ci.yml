@@ -16,25 +16,6 @@ jobs:
           POSTGRES_USER: petmarket_user
           POSTGRES_PASSWORD: petmarket_pass
           POSTGRES_DB: petmarket_db
-          POSTGRES_TEST_DB: petmarket_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-jobs:
-  lint-and-test:
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: petmarket_user
-          POSTGRES_PASSWORD: petmarket_pass
-          POSTGRES_DB: petmarket_db
         ports:
           - 5432:5432
         options: >-
@@ -50,23 +31,27 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install .[dev]
+          pip install -r requirements.txt
+          pip install pytest pytest-cov ruff httpx python-dotenv
 
-      - name: Run Ruff Linter
+      - name: Ruff
+        run: ruff check src tests
+
+      - name: Create test database
         run: |
-          ruff check . --fix
+          python -c "import psycopg; c = psycopg.connect('postgresql://petmarket_user:petmarket_pass@localhost:5432/petmarket_db', autocommit=True); c.execute('CREATE DATABASE petmarket_test'); c.close()"
 
-      - name: Run Pytest with Coverage Gate (≥80%)
+      - name: Pytest with coverage gate (80 percent)
         env:
           DATABASE_URL: postgresql://petmarket_user:petmarket_pass@localhost:5432/petmarket_db
           TEST_DATABASE_URL: postgresql://petmarket_user:petmarket_pass@localhost:5432/petmarket_test
           REQUIRE_DB: "1"
-        run: |
-          pytest --cov=src --cov-fail-under=80 --cov-report=term-missing
+        run: python -m pytest --cov=src --cov-fail-under=80 --cov-report=term-missing
 
   docker-build:
     needs: lint-and-test
@@ -77,7 +62,7 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build Docker Image
+      - name: Build Docker image
         uses: docker/build-push-action@v5
         with:
           context: .

@@ -48,6 +48,11 @@ jobs:
         run: |
           python -c "import psycopg; c = psycopg.connect('postgresql://petmarket_user:petmarket_pass@localhost:5432/petmarket_db', autocommit=True); c.execute('CREATE DATABASE petmarket_test'); c.close()"
 
+      - name: Run migrations on test database
+        env:
+          DATABASE_URL: postgresql://petmarket_user:petmarket_pass@localhost:5432/petmarket_test
+        run: python -m alembic upgrade head
+
       - name: Pytest with coverage gate (80 percent)
         env:
           DATABASE_URL: postgresql://petmarket_user:petmarket_pass@localhost:5432/petmarket_db

@@ -20,8 +20,8 @@ from .persistence.repositories import (
     SqlAlchemyRepositorioSurtido,
 )
 from .persistence.uow import (
-    SqlAlchemyUnitOfWork,
     SqlAlchemyOutboxPublisher,
+    SqlAlchemyUnitOfWork,
     create_session_factory,
     create_tables,
     drop_tables,

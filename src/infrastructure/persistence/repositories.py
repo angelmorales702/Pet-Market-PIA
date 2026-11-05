@@ -5,12 +5,11 @@ y traducen entre modelos de persistencia y agregados del dominio.
 """
 from __future__ import annotations
 
-from datetime import datetime
-from typing import List, Optional, Sequence
-from uuid import UUID, uuid4, uuid5, NAMESPACE_URL
+from typing import List, Optional
+from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from sqlalchemy import select, text
-from sqlalchemy.orm import Session, joinedload, selectinload
+from sqlalchemy.orm import Session, selectinload
 
 from src.application.ports import (
     RepositorioAlmacen,
@@ -30,9 +29,10 @@ from src.domain.entities import (
     LineaPedido,
     Surtido,
 )
+from src.domain.state_machine import EstadoPedido
 from src.domain.value_objects import (
-    DireccionEntrega,
     Dinero,
+    DireccionEntrega,
     EstadoDevolucion,
     EstadoEnvio,
     EstadoPago,
@@ -41,7 +41,7 @@ from src.domain.value_objects import (
     MotivoDevolucion,
     Sku,
 )
-from src.domain.state_machine import EstadoPedido
+
 from .models import (
     AlmacenModel,
     ClienteModel,
@@ -58,7 +58,6 @@ from .models import (
     ProductoModel,
     SurtidoModel,
 )
-
 
 # =============================================================================
 # HELPERS DE IDS ESTABLES
@@ -104,7 +103,6 @@ def _map_direccion_to_domain(model: DireccionModel) -> DireccionEntrega:
 
 
 def _map_direccion_from_domain(direccion: DireccionEntrega, cliente_id: UUID, id: Optional[UUID] = None) -> DireccionModel:
-    from uuid import uuid4
     return DireccionModel(
         id=id or uuid4(),
         cliente_id=cliente_id,
@@ -128,7 +126,6 @@ def _map_cliente_to_domain(model: ClienteModel) -> Cliente:
 
 
 def _map_cliente_from_domain(cliente: Cliente) -> ClienteModel:
-    from uuid import uuid4
     model = ClienteModel(
         id=cliente.id,
         nombre=cliente.nombre,
@@ -152,7 +149,6 @@ def _map_producto_to_domain(model: ProductoModel) -> Producto:
 
 
 def _map_producto_from_domain(producto: Producto) -> ProductoModel:
-    from uuid import uuid4
     return ProductoModel(
         id=producto.id,
         sku=str(producto.sku),
@@ -176,7 +172,6 @@ def _map_existencia_to_domain(model: ExistenciaModel) -> ExistenciaProducto:
 
 
 def _map_existencia_from_domain(existencia: ExistenciaProducto) -> ExistenciaModel:
-    from uuid import uuid4
     return ExistenciaModel(
         id=uuid4(),
         almacen_id=existencia.almacen_id,
@@ -201,7 +196,6 @@ def _map_almacen_to_domain(model: AlmacenModel) -> Almacen:
 
 
 def _map_almacen_from_domain(almacen: Almacen) -> AlmacenModel:
-    from uuid import uuid4
     model = AlmacenModel(
         id=almacen.id,
         nombre=almacen.nombre,
@@ -220,8 +214,7 @@ def _map_linea_pedido_to_domain(model: LineaPedidoModel) -> LineaPedido:
 
 
 def _map_linea_pedido_from_domain(linea: LineaPedido, pedido_id: UUID, id: Optional[UUID] = None) -> LineaPedidoModel:
-    from uuid import uuid4
-    from uuid import uuid5, NAMESPACE_URL
+    from uuid import NAMESPACE_URL, uuid5
     # Usar ID determinista si no se proporciona
     if id is None:
         id = uuid5(NAMESPACE_URL, f"{pedido_id}:{linea.sku}:{0}")
@@ -247,7 +240,6 @@ def _map_surtido_to_domain(model: SurtidoModel) -> Surtido:
 
 
 def _map_surtido_from_domain(surtido: Surtido) -> SurtidoModel:
-    from uuid import uuid4
     return SurtidoModel(
         id=surtido.id,
         pedido_id=surtido.pedido_id,
@@ -282,7 +274,6 @@ def _map_pedido_to_domain(model: PedidoModel) -> Pedido:
 
 
 def _map_pedido_from_domain(pedido: Pedido) -> PedidoModel:
-    from uuid import uuid4
     return PedidoModel(
         id=pedido.id,
         cliente_id=pedido.cliente_id,
@@ -313,7 +304,6 @@ def _map_pago_to_domain(model: PagoModel) -> Pago:
 
 
 def _map_pago_from_domain(pago: Pago) -> PagoModel:
-    from uuid import uuid4
     return PagoModel(
         id=pago.id,
         pedido_id=pago.pedido_id,
@@ -339,7 +329,6 @@ def _map_intento_to_domain(model: IntentoEntregaModel) -> IntentoEntrega:
 
 
 def _map_intento_from_domain(intento: IntentoEntrega, envio_id: UUID, id: Optional[UUID] = None) -> IntentoEntregaModel:
-    from uuid import uuid4
     return IntentoEntregaModel(
         id=id or uuid4(),
         envio_id=envio_id,
@@ -364,7 +353,6 @@ def _map_envio_to_domain(model: EnvioModel) -> Envio:
 
 
 def _map_envio_from_domain(envio: Envio) -> EnvioModel:
-    from uuid import uuid4
     return EnvioModel(
         id=envio.id,
         pedido_id=envio.pedido_id,
@@ -383,7 +371,6 @@ def _map_linea_devolucion_to_domain(model: LineaDevolucionModel) -> LineaDevoluc
 
 
 def _map_linea_devolucion_from_domain(linea: LineaDevolucion, devolucion_id: UUID, id: Optional[UUID] = None) -> LineaDevolucionModel:
-    from uuid import uuid4
     return LineaDevolucionModel(
         id=id or uuid4(),
         devolucion_id=devolucion_id,
@@ -408,7 +395,6 @@ def _map_devolucion_to_domain(model: DevolucionModel) -> Devolucion:
 
 
 def _map_devolucion_from_domain(devolucion: Devolucion) -> DevolucionModel:
-    from uuid import uuid4
     return DevolucionModel(
         id=devolucion.id,
         pedido_id=devolucion.pedido_id,
@@ -484,7 +470,7 @@ class SqlAlchemyRepositorioAlmacen(RepositorioAlmacen):
         model = _map_almacen_from_domain(almacen)
         self._session.merge(model)
         # Guardar existencias - buscar por (almacen_id, sku) y actualizar o crear
-        from sqlalchemy import select, or_
+        from sqlalchemy import select
         for ex in almacen.existencias.values():
             stmt = select(ExistenciaModel).where(
                 ExistenciaModel.almacen_id == almacen.id,

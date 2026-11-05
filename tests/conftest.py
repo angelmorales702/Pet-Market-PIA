@@ -13,13 +13,12 @@ Después de cada test, se ejecuta TRUNCATE para limpiar.
 from __future__ import annotations
 
 import os
-import sys
 
 import pytest
+from alembic import command
+from alembic.config import Config
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
-from alembic.config import Config
-from alembic import command
 
 # Cargar .env si existe
 try:
@@ -229,8 +228,8 @@ def almacen_sur(session):
 def producto_test(session):
     """Crea un producto de test sin existencias (solo para catálogo)."""
     from src.domain.aggregates import Producto
-    from src.infrastructure.persistence.repositories import SqlAlchemyRepositorioProducto
     from src.domain.value_objects import Dinero
+    from src.infrastructure.persistence.repositories import SqlAlchemyRepositorioProducto
 
     repo = SqlAlchemyRepositorioProducto(session)
     producto = Producto.crear(
@@ -249,9 +248,12 @@ def producto_test(session):
 @pytest.fixture
 def producto_test_con_stock(session, almacen_norte):
     """Crea un producto de test con existencias en el almacén."""
-    from src.domain.aggregates import Producto, Almacen
-    from src.infrastructure.persistence.repositories import SqlAlchemyRepositorioProducto, SqlAlchemyRepositorioAlmacen
+    from src.domain.aggregates import Producto
     from src.domain.value_objects import Dinero, Sku
+    from src.infrastructure.persistence.repositories import (
+        SqlAlchemyRepositorioAlmacen,
+        SqlAlchemyRepositorioProducto,
+    )
 
     repo_producto = SqlAlchemyRepositorioProducto(session)
     repo_almacen = SqlAlchemyRepositorioAlmacen(session)
@@ -278,8 +280,8 @@ def producto_test_con_stock(session, almacen_norte):
 def producto_test_2(session):
     """Crea un segundo producto de test."""
     from src.domain.aggregates import Producto
-    from src.infrastructure.persistence.repositories import SqlAlchemyRepositorioProducto
     from src.domain.value_objects import Dinero
+    from src.infrastructure.persistence.repositories import SqlAlchemyRepositorioProducto
 
     repo = SqlAlchemyRepositorioProducto(session)
     producto = Producto.crear(
@@ -303,9 +305,12 @@ def _crear_pedido_con_stock(session, cliente, almacen, producto, cantidad, sku):
     """Helper: crea pedido con stock reservado usando el flujo del dominio."""
     from src.domain.aggregates import Pedido
     from src.domain.entities import LineaPedido
-    from src.domain.value_objects import DireccionEntrega, Dinero, Sku
     from src.domain.services import AsignacionAlmacenService
-    from src.infrastructure.persistence.repositories import SqlAlchemyRepositorioPedido, SqlAlchemyRepositorioAlmacen
+    from src.domain.value_objects import Dinero, DireccionEntrega, Sku
+    from src.infrastructure.persistence.repositories import (
+        SqlAlchemyRepositorioAlmacen,
+        SqlAlchemyRepositorioPedido,
+    )
 
     repo_almacen = SqlAlchemyRepositorioAlmacen(session)
     repo_pedido = SqlAlchemyRepositorioPedido(session)
@@ -351,7 +356,7 @@ def pedido_creado(session, cliente, almacen_norte, producto_test):
     """
     from src.domain.aggregates import Pedido
     from src.domain.entities import LineaPedido
-    from src.domain.value_objects import DireccionEntrega, Dinero, Sku
+    from src.domain.value_objects import Dinero, DireccionEntrega, Sku
     from src.infrastructure.persistence.repositories import SqlAlchemyRepositorioPedido
 
     # Crear pedido directamente en estado CREADO (sin asignar surtidos)
@@ -386,11 +391,12 @@ def pedido_pagado(session, pedido_pendiente_pago, almacen_norte):
 
     US-003/US-004: Pago aprobado, stock confirmado (descontado), listo para preparación.
     """
+    from sqlalchemy.orm import sessionmaker
+
+    from src.api.main import FakePasarelaPago
     from src.application.in_memory import InMemoryEventPublisher
     from src.application.use_cases import ProcesarPagoUseCase
     from src.infrastructure.persistence.uow import SqlAlchemyUnitOfWork
-    from src.api.main import FakePasarelaPago
-    from sqlalchemy.orm import sessionmaker
 
     # Procesar pago exitoso usando el caso de uso real
     publisher = InMemoryEventPublisher()
@@ -406,10 +412,10 @@ def pedido_pagado(session, pedido_pendiente_pago, almacen_norte):
     session.commit()
 
     # Recargar pedido actualizado con surtidos explícitamente
-    from src.infrastructure.persistence.repositories import SqlAlchemyRepositorioPedido
     from sqlalchemy import select
     from sqlalchemy.orm import selectinload
-    from src.infrastructure.persistence.models import PedidoModel, SurtidoModel, LineaSurtidoModel
+
+    from src.infrastructure.persistence.models import PedidoModel, SurtidoModel
 
     stmt = select(PedidoModel).where(
         PedidoModel.id == pedido_pendiente_pago.id
@@ -428,10 +434,11 @@ def pedido_en_preparacion(session, pedido_pagado):
 
     US-007: Almacén ha iniciado la preparación (picking).
     """
+    from sqlalchemy.orm import sessionmaker
+
     from src.application.in_memory import InMemoryEventPublisher
     from src.application.use_cases import IniciarYEmpacarSurtidoUseCase
     from src.infrastructure.persistence.uow import SqlAlchemyUnitOfWork
-    from sqlalchemy.orm import sessionmaker
 
     publisher = InMemoryEventPublisher()
     uow = SqlAlchemyUnitOfWork(sessionmaker(bind=session.bind), publisher, existing_session=session)
@@ -441,10 +448,10 @@ def pedido_en_preparacion(session, pedido_pagado):
     session.commit()
 
     # Recargar explícitamente con los surtidos
-    from src.infrastructure.persistence.repositories import SqlAlchemyRepositorioPedido
     from sqlalchemy import select
     from sqlalchemy.orm import selectinload
-    from src.infrastructure.persistence.models import PedidoModel, SurtidoModel, LineaSurtidoModel
+
+    from src.infrastructure.persistence.models import PedidoModel, SurtidoModel
 
     stmt = select(PedidoModel).where(PedidoModel.id == pedido.id).options(
         selectinload(PedidoModel.surtidos).selectinload(SurtidoModel.lineas),
@@ -462,10 +469,11 @@ def pedido_empacado(session, pedido_en_preparacion, almacen_norte):
     US-007: Todos los surtidos están empacados, listo para envío.
     Nota: para tests que necesitan este fixture, el pedido debe tener surtidos en almacen_norte.
     """
+    from sqlalchemy.orm import sessionmaker
+
     from src.application.in_memory import InMemoryEventPublisher
     from src.application.use_cases import IniciarYEmpacarSurtidoUseCase
     from src.infrastructure.persistence.uow import SqlAlchemyUnitOfWork
-    from sqlalchemy.orm import sessionmaker
 
     publisher = InMemoryEventPublisher()
     uow = SqlAlchemyUnitOfWork(sessionmaker(bind=session.bind), publisher, existing_session=session)
@@ -480,10 +488,10 @@ def pedido_empacado(session, pedido_en_preparacion, almacen_norte):
     pedido = use_case.confirmar_empaque_surtido(pedido_en_preparacion.id, almacen_del_surtido)
     session.commit()
 
-    from src.infrastructure.persistence.repositories import SqlAlchemyRepositorioPedido
     from sqlalchemy import select
     from sqlalchemy.orm import selectinload
-    from src.infrastructure.persistence.models import PedidoModel, SurtidoModel, LineaSurtidoModel
+
+    from src.infrastructure.persistence.models import PedidoModel, SurtidoModel
 
     stmt = select(PedidoModel).where(PedidoModel.id == pedido.id).options(
         selectinload(PedidoModel.surtidos).selectinload(SurtidoModel.lineas),
@@ -499,10 +507,11 @@ def pedido_enviado(session, pedido_empacado):
 
     US-006: Envío generado con guía, en tránsito.
     """
+    from sqlalchemy.orm import sessionmaker
+
     from src.application.in_memory import InMemoryEventPublisher
     from src.application.use_cases import DespacharPedidoUseCase
     from src.infrastructure.persistence.uow import SqlAlchemyUnitOfWork
-    from sqlalchemy.orm import sessionmaker
 
     publisher = InMemoryEventPublisher()
     uow = SqlAlchemyUnitOfWork(sessionmaker(bind=session.bind), publisher, existing_session=session)
@@ -512,10 +521,10 @@ def pedido_enviado(session, pedido_empacado):
     session.commit()
 
     # Recargar explícitamente con los surtidos
-    from src.infrastructure.persistence.repositories import SqlAlchemyRepositorioPedido
     from sqlalchemy import select
     from sqlalchemy.orm import selectinload
-    from src.infrastructure.persistence.models import PedidoModel, SurtidoModel, LineaSurtidoModel
+
+    from src.infrastructure.persistence.models import PedidoModel, SurtidoModel
 
     stmt = select(PedidoModel).where(PedidoModel.id == pedido_empacado.id).options(
         selectinload(PedidoModel.surtidos).selectinload(SurtidoModel.lineas),
@@ -532,10 +541,11 @@ def pedido_entregado(session, pedido_enviado):
 
     US-010/US-011: Entrega exitosa registrada.
     """
+    from sqlalchemy.orm import sessionmaker
+
     from src.application.in_memory import InMemoryEventPublisher
     from src.application.use_cases import RegistrarEntregaUseCase
     from src.infrastructure.persistence.uow import SqlAlchemyUnitOfWork
-    from sqlalchemy.orm import sessionmaker
 
     publisher = InMemoryEventPublisher()
     uow = SqlAlchemyUnitOfWork(sessionmaker(bind=session.bind), publisher, existing_session=session)
@@ -547,7 +557,8 @@ def pedido_entregado(session, pedido_enviado):
     # Recargar explícitamente con los surtidos
     from sqlalchemy import select
     from sqlalchemy.orm import selectinload
-    from src.infrastructure.persistence.models import PedidoModel, SurtidoModel, LineaSurtidoModel
+
+    from src.infrastructure.persistence.models import PedidoModel, SurtidoModel
 
     stmt = select(PedidoModel).where(PedidoModel.id == pedido_enviado.id).options(
         selectinload(PedidoModel.surtidos).selectinload(SurtidoModel.lineas),
@@ -564,10 +575,11 @@ def pedido_entrega_fallida(session, pedido_enviado):
 
     US-011: Segundo intento fallido, regresa a almacén.
     """
+    from sqlalchemy.orm import sessionmaker
+
     from src.application.in_memory import InMemoryEventPublisher
     from src.application.use_cases import RegistrarEntregaUseCase
     from src.infrastructure.persistence.uow import SqlAlchemyUnitOfWork
-    from sqlalchemy.orm import sessionmaker
 
     publisher = InMemoryEventPublisher()
     uow = SqlAlchemyUnitOfWork(sessionmaker(bind=session.bind), publisher, existing_session=session)
@@ -598,9 +610,12 @@ def producto_sin_stock(session):
 
     Para test_crear_pedido_sin_stock que debe retornar 409.
     """
-    from src.domain.aggregates import Producto, Almacen
-    from src.infrastructure.persistence.repositories import SqlAlchemyRepositorioProducto, SqlAlchemyRepositorioAlmacen
+    from src.domain.aggregates import Almacen, Producto
     from src.domain.value_objects import Dinero, Sku
+    from src.infrastructure.persistence.repositories import (
+        SqlAlchemyRepositorioAlmacen,
+        SqlAlchemyRepositorioProducto,
+    )
 
     repo_producto = SqlAlchemyRepositorioProducto(session)
     repo_almacen = SqlAlchemyRepositorioAlmacen(session)

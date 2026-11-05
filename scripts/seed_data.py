@@ -17,21 +17,23 @@ from decimal import Decimal
 # Agregar raíz del proyecto al path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from uuid import UUID
 
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from src.domain.aggregates import Almacen, Cliente, Producto
-from src.domain.entities import ExistenciaProducto
-from src.domain.value_objects import DireccionEntrega, Dinero, Sku
-from src.infrastructure.persistence.models import AlmacenModel, ClienteModel, ProductoModel, ExistenciaModel
+from src.domain.value_objects import Dinero, DireccionEntrega, Sku
+from src.infrastructure.persistence.models import (
+    AlmacenModel,
+    ClienteModel,
+    ExistenciaModel,
+    ProductoModel,
+)
 from src.infrastructure.persistence.repositories import (
     SqlAlchemyRepositorioAlmacen,
     SqlAlchemyRepositorioCliente,
     SqlAlchemyRepositorioProducto,
 )
-from src.infrastructure.persistence.repositories import _map_existencia_from_domain
 
 
 def upsert_almacen(session, nombre: str, ubicacion: str) -> Almacen:
@@ -222,7 +224,7 @@ def seed_data():
         print("\n" + "=" * 50)
         print("✓ ¡Datos semilla generados exitosamente!")
         print("=" * 50)
-        print(f"\nIDs de Clientes creados/usados:")
+        print("\nIDs de Clientes creados/usados:")
         for i, (nombre, email, _, _, _, _, _, _) in enumerate(clientes_data):
             if i < len(clientes_ids):
                 print(f"  - {nombre} ({email}): {clientes_ids[i]}")

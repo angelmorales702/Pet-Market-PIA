@@ -6,20 +6,17 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-from src.domain.aggregates import Almacen, Pedido
+from src.domain.aggregates import Pedido
 from src.domain.entities import LineaPedido
 from src.domain.specifications import (
-    PedidoCancelableSpec,
-    PedidoEntregadoSpec,
     PagoAprobableSpec,
+    PedidoCancelableSpec,
 )
-from src.domain.state_machine import EstadoPedido
-from src.domain.value_objects import DireccionEntrega, Dinero, Sku
+from src.domain.value_objects import Dinero, DireccionEntrega, Sku
 
 
 def test_pedido_cancelable_spec_estado_pagado() -> None:
     """US-008: Pedido en estado PAGADO es cancelable por cliente."""
-    from uuid import uuid4
     from src.domain.entities import Surtido
 
     direccion = DireccionEntrega("Calle", "1", "Col", "Ciudad", "64000")
@@ -41,7 +38,6 @@ def test_pedido_cancelable_spec_estado_pagado() -> None:
 
 def test_pedido_cancelable_spec_estado_enviado() -> None:
     """US-009: Pedido en estado ENVIADO no es cancelable por cliente."""
-    from uuid import uuid4
     from src.domain.entities import Surtido
     from src.domain.value_objects import Guia
 
@@ -68,7 +64,6 @@ def test_pedido_cancelable_spec_estado_enviado() -> None:
 
 def test_pago_aprobable_spec_monto_coincide() -> None:
     """US-004: Pago aprobado cuando monto coincide con total."""
-    from uuid import uuid4
     from src.domain.entities import Surtido
 
     direccion = DireccionEntrega("Calle", "1", "Col", "Ciudad", "64000")
@@ -89,7 +84,6 @@ def test_pago_aprobable_spec_monto_coincide() -> None:
 
 def test_pago_aprobable_spec_monto_diferente() -> None:
     """US-004: Pago rechazado cuando monto no coincide."""
-    from uuid import uuid4
     from src.domain.entities import Surtido
 
     direccion = DireccionEntrega("Calle", "1", "Col", "Ciudad", "64000")

@@ -12,37 +12,33 @@ Localmente, los tests pueden omitirse si la DB no está disponible.
 """
 from __future__ import annotations
 
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 
-from src.domain.aggregates import Almacen, Cliente, Pedido, Producto, Pago, Envio, Devolucion
-from src.domain.entities import ExistenciaProducto, LineaPedido, Surtido, LineaDevolucion
-from src.domain.exceptions import TransicionEstadoInvalidaException
+from src.domain.aggregates import Almacen, Cliente, Devolucion, Envio, Pago, Pedido, Producto
+from src.domain.entities import ExistenciaProducto, LineaDevolucion, LineaPedido, Surtido
 from src.domain.value_objects import (
-    DireccionEntrega,
     Dinero,
-    EstadoSurtido,
-    EstadoPago,
-    EstadoEnvio,
+    DireccionEntrega,
     EstadoDevolucion,
+    EstadoEnvio,
+    EstadoPago,
+    EstadoSurtido,
     Guia,
     MotivoDevolucion,
     Sku,
 )
-from src.infrastructure.persistence.models import Base
 from src.infrastructure.persistence.repositories import (
     SqlAlchemyRepositorioAlmacen,
     SqlAlchemyRepositorioCliente,
+    SqlAlchemyRepositorioDevolucion,
+    SqlAlchemyRepositorioEnvio,
+    SqlAlchemyRepositorioPago,
     SqlAlchemyRepositorioPedido,
     SqlAlchemyRepositorioProducto,
-    SqlAlchemyRepositorioPago,
-    SqlAlchemyRepositorioEnvio,
-    SqlAlchemyRepositorioDevolucion,
-    SqlAlchemyRepositorioDevolucion,
     _map_existencia_from_domain,
 )
-from src.infrastructure.persistence.uow import SqlAlchemyUnitOfWork
 
 # Nota: TEST_DATABASE_URL y REQUIRE_DB ya están definidos en conftest.py
 # Usa los fixtures de conftest.py para engine y session
@@ -227,7 +223,6 @@ def test_unit_of_work_commit_y_rollback(session):
     1. Commit exitoso de un pedido completo
     2. Rollback cuando hay error (transacción revertida)
     """
-    from src.application.in_memory import InMemoryEventPublisher
     from src.infrastructure.persistence.repositories import (
         SqlAlchemyRepositorioAlmacen,
         SqlAlchemyRepositorioCliente,
@@ -327,7 +322,6 @@ def test_repositorio_pago_guardar_y_obtener(session):
 
 def test_repositorio_envio_guardar_y_obtener(session):
     """Test RepositorioEnvio - CRUD básico."""
-    from src.domain.aggregates import Envio
 
     repo_envio = SqlAlchemyRepositorioEnvio(session)
 
@@ -566,7 +560,7 @@ def test_repositorio_pedido_persistencia_surtidos_2_almacenes(session):
 
     for orig, recargado in zip(surtidos_original, surtidos_recargados):
         assert orig.id == recargado.id, f"ID de surtido no coincide: {orig.id} vs {recargado.id}"
-        assert orig.almacen_id == recargado.almacen_id, f"Almacen_id no coincide"
+        assert orig.almacen_id == recargado.almacen_id, "Almacen_id no coincide"
         assert orig.estado == recargado.estado, f"Estado no coincide: {orig.estado} vs {recargado.estado}"
 
     # Verificar líneas

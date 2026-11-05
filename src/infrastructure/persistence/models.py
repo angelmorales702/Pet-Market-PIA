@@ -5,14 +5,13 @@ No hay lógica de negocio aquí; solo mapeo a tablas y relaciones.
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Optional
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
     DateTime,
-    Enum as SQLEnum,
     ForeignKey,
     Integer,
     Numeric,
@@ -20,7 +19,6 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.orm import foreign
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -38,7 +36,7 @@ class ClienteModel(Base):
     nombre: Mapped[str] = mapped_column(String(200), nullable=False)
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     telefono: Mapped[str] = mapped_column(String(50), nullable=False)
-    fecha_creacion: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    fecha_creacion: Mapped[datetime] = mapped_column(DateTime, default=datetime.now(timezone.utc), nullable=False)
 
     direcciones: Mapped[list["DireccionModel"]] = relationship(back_populates="cliente", cascade="all, delete-orphan")
     pedidos: Mapped[list["PedidoModel"]] = relationship(
@@ -130,8 +128,8 @@ class PedidoModel(Base):
     direccion_ciudad: Mapped[str] = mapped_column(String(100), nullable=False)
     direccion_codigo_postal: Mapped[str] = mapped_column(String(5), nullable=False)
     reintentos_pago: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    fecha_creacion: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
-    fecha_actualizacion: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    fecha_creacion: Mapped[datetime] = mapped_column(DateTime, default=datetime.now(timezone.utc), nullable=False)
+    fecha_actualizacion: Mapped[datetime] = mapped_column(DateTime, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc), nullable=False)
 
     cliente: Mapped["ClienteModel"] = relationship(
         back_populates="pedidos",
@@ -205,8 +203,8 @@ class PagoModel(Base):
     reintentos: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     motivo_rechazo: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     transaccion_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    fecha_creacion: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
-    fecha_actualizacion: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    fecha_creacion: Mapped[datetime] = mapped_column(DateTime, default=datetime.now(timezone.utc), nullable=False)
+    fecha_actualizacion: Mapped[datetime] = mapped_column(DateTime, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc), nullable=False)
 
     pedido: Mapped["PedidoModel"] = relationship(back_populates="pago")
 
@@ -219,8 +217,8 @@ class EnvioModel(Base):
     pedido_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("pedidos.id"), unique=True, nullable=False)
     guia: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     estado: Mapped[str] = mapped_column(String(50), nullable=False, default="PENDIENTE")
-    fecha_creacion: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
-    fecha_actualizacion: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    fecha_creacion: Mapped[datetime] = mapped_column(DateTime, default=datetime.now(timezone.utc), nullable=False)
+    fecha_actualizacion: Mapped[datetime] = mapped_column(DateTime, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc), nullable=False)
 
     pedido: Mapped["PedidoModel"] = relationship(back_populates="envio")
     intentos: Mapped[list["IntentoEntregaModel"]] = relationship(back_populates="envio", cascade="all, delete-orphan")
@@ -235,7 +233,7 @@ class IntentoEntregaModel(Base):
     exitoso: Mapped[bool] = mapped_column(nullable=False)
     numero_intento: Mapped[int] = mapped_column(Integer, nullable=False)
     observaciones: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    fecha: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    fecha: Mapped[datetime] = mapped_column(DateTime, default=datetime.now(timezone.utc), nullable=False)
 
     envio: Mapped["EnvioModel"] = relationship(back_populates="intentos")
 
@@ -248,7 +246,7 @@ class DevolucionModel(Base):
     pedido_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("pedidos.id"), unique=True, nullable=False)
     motivo: Mapped[str] = mapped_column(Text, nullable=False)
     estado: Mapped[str] = mapped_column(String(50), nullable=False, default="SOLICITADA")
-    fecha_solicitud: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    fecha_solicitud: Mapped[datetime] = mapped_column(DateTime, default=datetime.now(timezone.utc), nullable=False)
     fecha_autorizacion: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     fecha_recepcion_almacen: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     fecha_reembolso: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)

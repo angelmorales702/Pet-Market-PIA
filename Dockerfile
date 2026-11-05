@@ -1,7 +1,7 @@
 FROM python:3.12-slim
 
 WORKDIR /app
-
+ENV PYTHONPATH=/app
 # Install system dependencies (curl for healthcheck, build tools for psycopg)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Set Python path so 'src' module is importable
-ENV PYTHONPATH=/app
+
 
 # Copy dependency files first (layer caching)
 COPY requirements.txt .

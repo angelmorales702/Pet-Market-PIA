@@ -8,8 +8,7 @@ Alineados con docs/fuentes/Diagrama_de_clases.md y Diagramas_DDD.md
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
-from enum import Enum
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from uuid import UUID, uuid4
 
@@ -33,22 +32,18 @@ from .events import (
     PedidoEmpacadoEvent,
     PedidoEntregadoEvent,
     PedidoEnviadoEvent,
-    StockInsuficienteEvent,
     StockReservadoEvent,
     SurtidoEmpacadoEvent,
 )
 from .exceptions import (
-    CancelacionNoPermitidaError,
     DevolucionNoPermitidaError,
-    PagoMontoNoCoincideError,
-    PagoRechazadoError,
     StockInsuficienteError,
     TransicionEstadoInvalidaException,
 )
 from .state_machine import EstadoPedido, transitar
 from .value_objects import (
-    DireccionEntrega,
     Dinero,
+    DireccionEntrega,
     EstadoDevolucion,
     EstadoEnvio,
     EstadoPago,
@@ -643,16 +638,19 @@ class Devolucion(AggregateRoot):
             raise TransicionEstadoInvalidaException(self.estado.value, "REEMBOLSADO")
         self.fecha_reembolso = datetime.now()
 
-    def esta_dentro_ventana(self, fecha_entrega: datetime, dias_habiles: int = 5) -> bool:
+    def esta_dentro_ventana(self, fecha_entrega: datetime, dias_habiles: int = 5, calendario=None) -> bool:
         """Verifica si la solicitud está dentro de la ventana de devolución.
 
         US-013: 5 días hábiles posteriores a la entrega.
         # SUPUESTO: Cálculo de días hábiles (excluye fines de semana). Validar con el negocio.
         """
-        fecha_limite = fecha_entrega
-        dias_agregados = 0
-        while dias_agregados < dias_habiles:
-            fecha_limite += timedelta(days=1)
-            if fecha_limite.weekday() < 5:  # 0-4 = Lun-Vie
-                dias_agregados += 1
-        return datetime.now() <= fecha_limite
+        if calendario is not None:
+            fecha_limite = calendario.agregar_dias_habiles(fecha_entrega, dias_habiles)
+        else:
+            fecha_limite = fecha_entrega
+            dias_agregados = 0
+            while dias_agregados < dias_habiles:
+                fecha_limite += timedelta(days=1)
+                if fecha_limite.weekday() < 5:  # 0-4 = Lun-Vie
+                    dias_agregados += 1
+        return datetime.now(timezone.utc) <= fecha_limite

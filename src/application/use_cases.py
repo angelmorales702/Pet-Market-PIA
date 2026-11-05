@@ -12,19 +12,21 @@ Orquestan:
 from __future__ import annotations
 
 from datetime import datetime
-from typing import List, Optional
+from typing import Optional
 from uuid import UUID
 
-from src.domain.aggregates import Almacen, Devolucion, Envio, Pago, Pedido
+from src.domain.aggregates import Devolucion, Envio, Pago, Pedido
 from src.domain.entities import LineaDevolucion, LineaPedido
 from src.domain.exceptions import (
+    AlmacenNoEncontradoError,
+    DevolucionNoEncontradoError,
     DevolucionNoPermitidaError,
     PedidoNoEncontradoError,
-    DevolucionNoEncontradoError,
-    AlmacenNoEncontradoError,
 )
 from src.domain.services import AsignacionAlmacenService, CalendarioDiasHabiles, Reloj
-from src.domain.value_objects import DireccionEntrega, Dinero, Guia, MotivoDevolucion, Sku
+from src.domain.state_machine import EstadoPedido
+from src.domain.value_objects import DireccionEntrega, Guia, MotivoDevolucion, Sku
+
 from .ports import (
     PasarelaPago,
     PublicadorEventos,
@@ -346,7 +348,7 @@ class SolicitarDevolucionUseCase:
             devolucion = Devolucion.solicitar(pedido_id=pedido.id, lineas=lineas, motivo=motivo)
 
             # Verificar ventana de 5 días hábiles
-            if not devolucion.esta_dentro_ventana(fecha_entrega):
+            if not devolucion.esta_dentro_ventana(fecha_entrega, calendario=self._calendario):
                 raise DevolucionNoPermitidaError("Fuera de la ventana de 5 días hábiles")
 
             pedido_devolucion_id = pedido.solicitar_devolucion(motivo)
@@ -409,6 +411,10 @@ class ProcesarReembolsoUseCase:
 
             devolucion.confirmar_recepcion_almacen()
 
+            pedido = uow.pedidos.obtener_por_id(devolucion.pedido_id)
+            if not pedido:
+                raise PedidoNoEncontradoError(str(devolucion.pedido_id))
+
             pago = uow.pagos.obtener_por_pedido(devolucion.pedido_id)
             if pago:
                 resultado = self._pasarela.reembolsar("TRANS_REF", pago.monto)
@@ -418,6 +424,10 @@ class ProcesarReembolsoUseCase:
 
             devolucion.marcar_reembolsado()
             uow.devoluciones.guardar(devolucion)
+
+            # US-015: Cerrar pedido al completar reembolso
+            pedido._transicionar(EstadoPedido.DEVUELTO)
+            uow.pedidos.guardar(pedido)
 
             eventos = devolucion.clear_domain_events()
             if pago:

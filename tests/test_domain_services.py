@@ -11,16 +11,15 @@ from datetime import datetime, timedelta
 from uuid import uuid4
 
 from src.domain.aggregates import Almacen, Pedido
-from src.domain.entities import LineaPedido, Surtido
-from src.domain.exceptions import StockInsuficienteError
+from src.domain.entities import LineaPedido
 from src.domain.services import (
     AsignacionAlmacenService,
-    RelojFijo,
     CalendarioDiasHabilesBasico,
     DiscrepanciaInventarioSpec,
+    RelojFijo,
 )
-from src.domain.value_objects import DireccionEntrega, Dinero, Sku
 from src.domain.state_machine import EstadoPedido
+from src.domain.value_objects import Dinero, DireccionEntrega, Sku
 
 
 def _crear_pedido(lineas: list[LineaPedido]) -> Pedido:
@@ -172,6 +171,47 @@ def test_calendario_festivos() -> None:
     # 1 día hábil -> miércoles 17 (martes es festivo)
     fin = cal.agregar_dias_habiles(inicio, 1)
     assert fin == datetime(2024, 1, 17, 10, 0, 0)
+
+
+# --- Tests reloj en dominio (US-002, US-013) ---
+
+def test_esta_dentro_ventana_con_reloj_fijo() -> None:
+    """US-013: esta_dentro_ventana respeta el calendario inyectado y el reloj del sistema."""
+    from src.domain.aggregates import Devolucion
+    from src.domain.entities import LineaDevolucion
+    from src.domain.value_objects import MotivoDevolucion, Sku
+
+    lineas = [LineaDevolucion(Sku.of("SKU-99999"), 1)]
+    motivo = MotivoDevolucion("Test")
+    dev = Devolucion.solicitar(uuid4(), lineas, motivo)
+
+    # Con calendario inyectado (lunes -> viernes siguiente = 5 días hábiles)
+    cal = CalendarioDiasHabilesBasico()
+    # Entrega: lunes 15 ene 2024 -> límite: lunes 22 ene 2024
+    fecha_entrega = datetime(2024, 1, 15, 10, 0, 0, tzinfo=timezone.utc)
+    # Reloj fijado a miércoles 17 (dentro de la ventana)
+    reloj = RelojFijo(datetime(2024, 1, 17, 10, 0, 0, tzinfo=timezone.utc))
+    # Mock: patch temporal del reloj sistema para esta llamada
+    original_now = datetime.now
+    try:
+        datetime.now = lambda tz=None: reloj.ahora() if tz else reloj.ahora()
+        assert dev.esta_dentro_ventana(fecha_entrega, calendario=cal) is True
+    finally:
+        datetime.now = original_now
+
+
+def test_reserva_expirada_service_usa_reloj_inyectado() -> None:
+    """US-002: ReservaExpiradaService usa el reloj inyectado (no datetime.now directo)."""
+    from datetime import timezone
+
+    from src.domain.services import RelojFijo, ReservaExpiradaService
+
+    fecha_base = datetime(2024, 1, 15, 10, 0, 0, tzinfo=timezone.utc)
+    reloj = RelojFijo(fecha_base)
+    service = ReservaExpiradaService(reloj=reloj)
+    # La instancia debe referenciar el reloj inyectado, no el sistema
+    assert service._reloj is reloj
+    assert service._reloj.ahora() == fecha_base
 
 
 # --- Tests Discrepancia (US-016) ---

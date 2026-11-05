@@ -5,7 +5,7 @@ No dependen de FastAPI, SQLAlchemy ni de ningún framework externo.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from enum import Enum
 from uuid import UUID, uuid4

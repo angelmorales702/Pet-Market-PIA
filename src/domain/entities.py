@@ -12,12 +12,8 @@ from dataclasses import dataclass, field
 from uuid import UUID
 
 from .value_objects import (
-    DireccionEntrega,
     Dinero,
     EstadoSurtido,
-    EstadoEnvio,
-    Guia,
-    MotivoDevolucion,
     Sku,
 )
 

@@ -16,7 +16,7 @@ from uuid import UUID
 from .aggregates import Almacen, Pedido, Producto
 from .entities import ExistenciaProducto
 from .state_machine import EstadoPedido
-from .value_objects import DireccionEntrega, Dinero, Sku
+from .value_objects import Dinero, DireccionEntrega
 
 T = TypeVar("T")
 
@@ -192,8 +192,9 @@ class DevolucionDentroDeVentanaSpec(Specification[Pedido]):
 
     US-013: Ventana de devolución de 5 días hábiles.
     """
-    def __init__(self, fecha_entrega) -> None:
+    def __init__(self, fecha_entrega, calendario=None) -> None:
         self.fecha_entrega = fecha_entrega
+        self._calendario = calendario
 
     def is_satisfied_by(self, pedido: Pedido) -> bool:
         if pedido.estado != EstadoPedido.ENTREGADO:
@@ -206,7 +207,7 @@ class DevolucionDentroDeVentanaSpec(Specification[Pedido]):
             lineas=[],
             motivo=None,  # type: ignore
         )
-        return dev.esta_dentro_ventana(self.fecha_entrega)
+        return dev.esta_dentro_ventana(self.fecha_entrega, calendario=self._calendario)
 
 
 class DevolucionAprobadaSpec(Specification):

@@ -4,9 +4,7 @@ Gestiona la transacción y coordina los repositorios.
 """
 from __future__ import annotations
 
-from contextlib import contextmanager
 from typing import Optional
-from uuid import UUID
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -24,6 +22,7 @@ from src.application.ports import (
     UnitOfWork,
 )
 from src.domain.events import DomainEvent
+
 from .models import Base
 from .repositories import (
     SqlAlchemyRepositorioAlmacen,

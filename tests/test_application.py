@@ -10,27 +10,27 @@ from uuid import uuid4
 
 import pytest
 
+from src.application.in_memory import (
+    FakePasarelaPago,
+    InMemoryEventPublisher,
+    InMemoryUnitOfWork,
+)
+from src.application.use_cases import (
+    AutorizarDevolucionUseCase,
+    CancelarPedidoUseCase,
+    ConfirmarCheckoutUseCase,
+    ConsultarDiscrepanciaInventarioUseCase,
+    ConsultarEstadoPedidoUseCase,
+    DespacharPedidoUseCase,
+    IniciarYEmpacarSurtidoUseCase,
+    ProcesarPagoUseCase,
+    ProcesarReembolsoUseCase,
+    RegistrarEntregaUseCase,
+    SolicitarDevolucionUseCase,
+)
 from src.domain.aggregates import Almacen
 from src.domain.entities import LineaDevolucion, LineaPedido
-from src.domain.value_objects import DireccionEntrega, Dinero, MotivoDevolucion, Sku
-from src.application.use_cases import (
-     ConfirmarCheckoutUseCase,
-     ProcesarPagoUseCase,
-     CancelarPedidoUseCase,
-     IniciarYEmpacarSurtidoUseCase,
-     DespacharPedidoUseCase,
-     RegistrarEntregaUseCase,
-     SolicitarDevolucionUseCase,
-     AutorizarDevolucionUseCase,
-     ProcesarReembolsoUseCase,
-     ConsultarEstadoPedidoUseCase,
-     ConsultarDiscrepanciaInventarioUseCase,
-)
-from src.application.in_memory import (
-     InMemoryUnitOfWork,
-     FakePasarelaPago,
-     InMemoryEventPublisher,
-)
+from src.domain.value_objects import Dinero, DireccionEntrega, MotivoDevolucion, Sku
 
 
 @pytest.fixture

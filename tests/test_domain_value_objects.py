@@ -5,19 +5,19 @@ Cobertura para value_objects.py
 from __future__ import annotations
 
 import pytest
+
+from src.domain.state_machine import EstadoPedido
 from src.domain.value_objects import (
-    DireccionEntrega,
     Dinero,
+    DireccionEntrega,
+    EstadoDevolucion,
+    EstadoEnvio,
+    EstadoPago,
+    EstadoSurtido,
     Guia,
     MotivoDevolucion,
     Sku,
-    EstadoSurtido,
-    EstadoEnvio,
-    EstadoPago,
-    EstadoDevolucion,
 )
-from src.domain.state_machine import EstadoPedido
-
 
 # =============================================================================
 # Sku
@@ -237,10 +237,10 @@ def test_transicion_estado_invalida_exception():
 # =============================================================================
 
 from src.domain.exceptions import (
-    StockInsuficienteError,
     CancelacionNoPermitidaError,
     DevolucionNoPermitidaError,
     PagoMontoNoCoincideError,
+    StockInsuficienteError,
 )
 
 

@@ -10,7 +10,8 @@ from uuid import UUID
 from src.domain.aggregates import Almacen, Cliente, Devolucion, Envio, Pago, Pedido, Producto
 from src.domain.entities import Surtido
 from src.domain.events import DomainEvent
-from src.domain.value_objects import Guia, Sku, Dinero
+from src.domain.value_objects import Dinero, Guia, Sku
+
 from .ports import (
     PasarelaPago,
     PublicadorEventos,

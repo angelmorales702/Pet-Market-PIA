@@ -7,8 +7,9 @@ US-016: Discrepancia inventario.
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
+import pytest
 
 from src.domain.aggregates import Almacen, Pedido
 from src.domain.entities import LineaPedido
@@ -176,7 +177,16 @@ def test_calendario_festivos() -> None:
 # --- Tests reloj en dominio (US-002, US-013) ---
 
 def test_esta_dentro_ventana_con_reloj_fijo() -> None:
-    """US-013: esta_dentro_ventana respeta el calendario inyectado y el reloj del sistema."""
+    """US-013: esta_dentro_ventana respeta el calendario inyectado y el reloj inyectado.
+
+    US-013: 5 días hábiles posteriores a la entrega.
+    Entrega: lunes 15 ene 2024 (15:00 UTC)
+    Límite: lunes 22 ene 2024 (15:00 UTC) - 5 días hábiles exactos
+
+    Casos probados:
+    - Miércoles 17 ene 2024 (dentro de la ventana) -> True
+    - Martes 23 ene 2024 (fuera de la ventana) -> False
+    """
     from src.domain.aggregates import Devolucion
     from src.domain.entities import LineaDevolucion
     from src.domain.value_objects import MotivoDevolucion, Sku
@@ -189,15 +199,14 @@ def test_esta_dentro_ventana_con_reloj_fijo() -> None:
     cal = CalendarioDiasHabilesBasico()
     # Entrega: lunes 15 ene 2024 -> límite: lunes 22 ene 2024
     fecha_entrega = datetime(2024, 1, 15, 10, 0, 0, tzinfo=timezone.utc)
-    # Reloj fijado a miércoles 17 (dentro de la ventana)
-    reloj = RelojFijo(datetime(2024, 1, 17, 10, 0, 0, tzinfo=timezone.utc))
-    # Mock: patch temporal del reloj sistema para esta llamada
-    original_now = datetime.now
-    try:
-        datetime.now = lambda tz=None: reloj.ahora() if tz else reloj.ahora()
-        assert dev.esta_dentro_ventana(fecha_entrega, calendario=cal) is True
-    finally:
-        datetime.now = original_now
+
+    # Caso 1: Miércoles 17 (dentro de la ventana)
+    reloj_dentro = RelojFijo(datetime(2024, 1, 17, 10, 0, 0, tzinfo=timezone.utc))
+    assert dev.esta_dentro_ventana(fecha_entrega, calendario=cal, reloj=reloj_dentro) is True
+
+    # Caso 2: Martes 23 (fuera de la ventana)
+    reloj_fuera = RelojFijo(datetime(2024, 1, 23, 10, 0, 0, tzinfo=timezone.utc))
+    assert dev.esta_dentro_ventana(fecha_entrega, calendario=cal, reloj=reloj_fuera) is False
 
 
 def test_reserva_expirada_service_usa_reloj_inyectado() -> None:

@@ -17,6 +17,7 @@ from uuid import UUID
 from fastapi import Body, Depends, FastAPI, Header, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, Field, ValidationError, field_validator
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -259,6 +260,36 @@ async def handle_validation_error(request, exc: ValidationError):
         # Mapear tipos de error a códigos más específicos
         if "sku" in loc.lower() or error_type == "value_error":
             codigo = "SKU_INVALIDO"
+        elif "codigo_postal" in loc:
+            codigo = "CODIGO_POSTAL_INVALIDO"
+        else:
+            codigo = "DATOS_INVALIDOS"
+
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            content=_build_error_detail(codigo, msg)
+        )
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        content=_build_error_detail("DATOS_INVALIDOS", "Error de validación")
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def handle_request_validation_error(request, exc: RequestValidationError):
+    """Handle FastAPI RequestValidationError with 422 Unprocessable Entity."""
+    errors = exc.errors()
+    if errors:
+        first_error = errors[0]
+        loc = ".".join(str(l) for l in first_error.get("loc", []))
+        msg = first_error.get("msg", "Error de validación")
+        error_type = first_error.get("type", "value_error")
+
+        # Mapear tipos de error a códigos más específicos
+        if "sku" in loc.lower():
+            codigo = "SKU_INVALIDO"
+        elif "codigo_postal" in loc:
+            codigo = "CODIGO_POSTAL_INVALIDO"
         else:
             codigo = "DATOS_INVALIDOS"
 

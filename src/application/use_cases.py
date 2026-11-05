@@ -23,7 +23,7 @@ from src.domain.exceptions import (
     DevolucionNoPermitidaError,
     PedidoNoEncontradoError,
 )
-from src.domain.services import AsignacionAlmacenService, CalendarioDiasHabiles, Reloj
+from src.domain.services import AsignacionAlmacenService, CalendarioDiasHabiles, Reloj, RelojSistema
 from src.domain.state_machine import EstadoPedido
 from src.domain.value_objects import DireccionEntrega, Guia, MotivoDevolucion, Sku
 
@@ -334,10 +334,11 @@ class RegistrarEntregaUseCase:
 class SolicitarDevolucionUseCase:
     """US-013, US-014: Solicita una devolución dentro de la ventana de 5 días hábiles."""
 
-    def __init__(self, uow: UnitOfWork, event_publisher: PublicadorEventos, calendario: Optional[CalendarioDiasHabiles] = None):
+    def __init__(self, uow: UnitOfWork, event_publisher: PublicadorEventos, calendario: Optional[CalendarioDiasHabiles] = None, reloj: Optional[Reloj] = None):
         self._uow = uow
         self._publisher = event_publisher
         self._calendario = calendario
+        self._reloj = reloj or RelojSistema()
 
     def ejecutar(self, pedido_id: UUID, lineas: list[LineaDevolucion], motivo: MotivoDevolucion, fecha_entrega: datetime) -> Devolucion:
         with self._uow as uow:
@@ -348,7 +349,7 @@ class SolicitarDevolucionUseCase:
             devolucion = Devolucion.solicitar(pedido_id=pedido.id, lineas=lineas, motivo=motivo)
 
             # Verificar ventana de 5 días hábiles
-            if not devolucion.esta_dentro_ventana(fecha_entrega, calendario=self._calendario):
+            if not devolucion.esta_dentro_ventana(fecha_entrega, calendario=self._calendario, reloj=self._reloj):
                 raise DevolucionNoPermitidaError("Fuera de la ventana de 5 días hábiles")
 
             pedido_devolucion_id = pedido.solicitar_devolucion(motivo)

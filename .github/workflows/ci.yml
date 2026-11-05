@@ -2,9 +2,10 @@ name: CI/CD Pipeline - PetMarket
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, fix/tests-api ]
   pull_request:
     branches: [ main, master ]
+  workflow_dispatch:
 
 jobs:
   lint-and-test:

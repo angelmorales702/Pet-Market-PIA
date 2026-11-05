@@ -504,7 +504,7 @@ class SqlAlchemyRepositorioPedido(RepositorioPedido):
             self._session.merge(surtido_model)
             for linea in surtido.lineas:
                 linea_surtido_model = LineaSurtidoModel(
-                    id=linea.__dict__.get('_id') or None,
+                    id=linea.__dict__.get('_id') or uuid4(),
                     surtido_id=surtido.id,
                     sku=str(linea.sku),
                     cantidad=linea.cantidad,

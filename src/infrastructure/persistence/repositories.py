@@ -7,9 +7,9 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import List, Optional, Sequence
-from uuid import UUID, uuid4
+from uuid import UUID, uuid4, uuid5, NAMESPACE_URL
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from src.application.ports import (
@@ -58,6 +58,35 @@ from .models import (
     ProductoModel,
     SurtidoModel,
 )
+
+
+# =============================================================================
+# HELPERS DE IDS ESTABLES
+# =============================================================================
+
+def _ids_estables(parent_id: UUID, items: list) -> list[UUID]:
+    """Genera IDs deterministas para una lista de items.
+
+    Los IDs se generan con uuid5(NAMESPACE_URL, f"{parent_id}:{sku}:{n}")
+    donde n es la posición (0-based) del item en la lista.
+
+    Args:
+        parent_id: UUID del agregado padre (pedido_id o surtido_id)
+        items: Lista de items (líneas de pedido o surtidos)
+
+    Returns:
+        Lista de UUIDs deterministas en el mismo orden que items
+    """
+    ids = []
+    for n, item in enumerate(items):
+        # Para LineaPedido y LineaSurtido, el item tiene .sku como Sku object
+        key_value = getattr(item, 'sku', f'item_{n}')
+        key_str = str(key_value) if key_value else f'item_{n}'
+        # Generar UUID determinista: parent_id + sku + posición
+        id_str = f"{parent_id}:{key_str}:{n}"
+        stable_id = uuid5(NAMESPACE_URL, id_str)
+        ids.append(stable_id)
+    return ids
 
 
 # =============================================================================
@@ -192,8 +221,12 @@ def _map_linea_pedido_to_domain(model: LineaPedidoModel) -> LineaPedido:
 
 def _map_linea_pedido_from_domain(linea: LineaPedido, pedido_id: UUID, id: Optional[UUID] = None) -> LineaPedidoModel:
     from uuid import uuid4
+    from uuid import uuid5, NAMESPACE_URL
+    # Usar ID determinista si no se proporciona
+    if id is None:
+        id = uuid5(NAMESPACE_URL, f"{pedido_id}:{linea.sku}:{0}")
     return LineaPedidoModel(
-        id=id or uuid4(),
+        id=id,
         pedido_id=pedido_id,
         sku=str(linea.sku),
         cantidad=linea.cantidad,
@@ -494,17 +527,33 @@ class SqlAlchemyRepositorioPedido(RepositorioPedido):
     def guardar(self, pedido: Pedido) -> None:
         model = _map_pedido_from_domain(pedido)
         self._session.merge(model)
-        # Guardar líneas
-        for linea in pedido.lineas:
-            linea_model = _map_linea_pedido_from_domain(linea, pedido.id)
+
+        # === Guardar líneas con IDs estables ===
+        linea_ids = _ids_estables(pedido.id, pedido.lineas)
+        for linea, linea_id in zip(pedido.lineas, linea_ids):
+            linea_model = _map_linea_pedido_from_domain(linea, pedido.id, id=linea_id)
             self._session.merge(linea_model)
-        # Guardar surtidos
+
+        # === Eliminar líneas que ya no existen ===
+        # Calcular IDs que deberían existir
+        if linea_ids:
+            ids_a_conservar = set(linea_ids)
+            # Construir placeholders para el IN
+            ids_placeholders = ",".join([f":id_{i}" for i in range(len(ids_a_conservar))])
+            delete_stmt = text(f"DELETE FROM lineas_pedido WHERE pedido_id = :pedido_id AND id NOT IN ({ids_placeholders})")
+            params = {"pedido_id": pedido.id, **{f"id_{i}": id for i, id in enumerate(ids_a_conservar)}}
+            self._session.execute(delete_stmt, params)
+
+        # === Guardar surtidos con sus líneas ===
         for surtido in pedido.surtidos:
             surtido_model = _map_surtido_from_domain(surtido)
             self._session.merge(surtido_model)
-            for linea in surtido.lineas:
+
+            # === Líneas de surtido con IDs estables ===
+            linea_surtido_ids = _ids_estables(surtido.id, surtido.lineas)
+            for linea, linea_id in zip(surtido.lineas, linea_surtido_ids):
                 linea_surtido_model = LineaSurtidoModel(
-                    id=linea.__dict__.get('_id') or uuid4(),
+                    id=linea_id,
                     surtido_id=surtido.id,
                     sku=str(linea.sku),
                     cantidad=linea.cantidad,
@@ -512,6 +561,14 @@ class SqlAlchemyRepositorioPedido(RepositorioPedido):
                     precio_unitario_moneda=linea.precio_unitario.moneda,
                 )
                 self._session.merge(linea_surtido_model)
+
+            # === Eliminar líneas de surtido que ya no existen ===
+            if linea_surtido_ids:
+                ids_surtido_a_conservar = set(linea_surtido_ids)
+                ids_placeholders = ",".join([f":id_{i}" for i in range(len(ids_surtido_a_conservar))])
+                delete_stmt = text(f"DELETE FROM lineas_surtido WHERE surtido_id = :surtido_id AND id NOT IN ({ids_placeholders})")
+                params = {"surtido_id": surtido.id, **{f"id_{i}": id for i, id in enumerate(ids_surtido_a_conservar)}}
+                self._session.execute(delete_stmt, params)
 
     def obtener_por_id(self, pedido_id: UUID) -> Optional[Pedido]:
         stmt = select(PedidoModel).where(PedidoModel.id == pedido_id).options(
@@ -608,9 +665,12 @@ class SqlAlchemyRepositorioSurtido(RepositorioSurtido):
     def guardar(self, surtido: Surtido) -> None:
         model = _map_surtido_from_domain(surtido)
         self._session.merge(model)
-        for linea in surtido.lineas:
+
+        # === Líneas de surtido con IDs estables ===
+        linea_ids = _ids_estables(surtido.id, surtido.lineas)
+        for linea, linea_id in zip(surtido.lineas, linea_ids):
             linea_model = LineaSurtidoModel(
-                id=linea.__dict__.get('_id') or uuid4(),
+                id=linea_id,
                 surtido_id=surtido.id,
                 sku=str(linea.sku),
                 cantidad=linea.cantidad,
@@ -618,6 +678,14 @@ class SqlAlchemyRepositorioSurtido(RepositorioSurtido):
                 precio_unitario_moneda=linea.precio_unitario.moneda,
             )
             self._session.merge(linea_model)
+
+        # === Eliminar líneas de surtido que ya no existen ===
+        if linea_ids:
+            ids_a_conservar = set(linea_ids)
+            ids_placeholders = ",".join([f":id_{i}" for i in range(len(ids_a_conservar))])
+            delete_stmt = text(f"DELETE FROM lineas_surtido WHERE surtido_id = :surtido_id AND id NOT IN ({ids_placeholders})")
+            params = {"surtido_id": surtido.id, **{f"id_{i}": id for i, id in enumerate(ids_a_conservar)}}
+            self._session.execute(delete_stmt, params)
 
     def obtener_por_id(self, surtido_id: UUID) -> Optional[Surtido]:
         stmt = select(SurtidoModel).where(SurtidoModel.id == surtido_id).options(selectinload(SurtidoModel.lineas))

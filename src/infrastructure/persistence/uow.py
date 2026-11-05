@@ -4,7 +4,7 @@ Gestiona la transacción y coordina los repositorios.
 """
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, Sequence
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -187,6 +187,6 @@ class SqlAlchemyOutboxPublisher(PublicadorEventos):
     def publicar(self, eventos: Sequence[DomainEvent]) -> None:
         # En una implementación completa, aquí se insertarían en tabla outbox
         # Por ahora delegamos al logger o a un publicador real
-        for evento in eventos:
+        for _evento in eventos:
             # TODO: Insertar en tabla outbox
             pass

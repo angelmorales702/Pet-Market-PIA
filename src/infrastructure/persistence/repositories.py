@@ -229,7 +229,7 @@ def _map_linea_pedido_from_domain(linea: LineaPedido, pedido_id: UUID, id: Optio
 
 
 def _map_surtido_to_domain(model: SurtidoModel) -> Surtido:
-    lineas = [_map_linea_pedido_to_domain(l) for l in model.lineas]
+    lineas = [_map_linea_pedido_to_domain(linea) for linea in model.lineas]
     return Surtido(
         id=model.id,
         pedido_id=model.pedido_id,
@@ -249,7 +249,7 @@ def _map_surtido_from_domain(surtido: Surtido) -> SurtidoModel:
 
 
 def _map_pedido_to_domain(model: PedidoModel) -> Pedido:
-    lineas = [_map_linea_pedido_to_domain(l) for l in model.lineas]
+    lineas = [_map_linea_pedido_to_domain(linea) for linea in model.lineas]
     direccion = DireccionEntrega(
         calle=model.direccion_calle,
         numero=model.direccion_numero,
@@ -380,7 +380,7 @@ def _map_linea_devolucion_from_domain(linea: LineaDevolucion, devolucion_id: UUI
 
 
 def _map_devolucion_to_domain(model: DevolucionModel) -> Devolucion:
-    lineas = [_map_linea_devolucion_to_domain(l) for l in model.lineas]
+    lineas = [_map_linea_devolucion_to_domain(linea) for linea in model.lineas]
     return Devolucion(
         id=model.id,
         pedido_id=model.pedido_id,
@@ -452,7 +452,7 @@ class SqlAlchemyRepositorioProducto(RepositorioProducto):
         return _map_producto_to_domain(model) if model else None
 
     def obtener_activos(self) -> List[Producto]:
-        stmt = select(ProductoModel).where(ProductoModel.activo == True)
+        stmt = select(ProductoModel).where(ProductoModel.activo)
         models = self._session.execute(stmt).scalars().all()
         return [_map_producto_to_domain(m) for m in models]
 
@@ -516,7 +516,7 @@ class SqlAlchemyRepositorioPedido(RepositorioPedido):
 
         # === Guardar líneas con IDs estables ===
         linea_ids = _ids_estables(pedido.id, pedido.lineas)
-        for linea, linea_id in zip(pedido.lineas, linea_ids):
+        for linea, linea_id in zip(pedido.lineas, linea_ids, strict=False):
             linea_model = _map_linea_pedido_from_domain(linea, pedido.id, id=linea_id)
             self._session.merge(linea_model)
 
@@ -537,7 +537,7 @@ class SqlAlchemyRepositorioPedido(RepositorioPedido):
 
             # === Líneas de surtido con IDs estables ===
             linea_surtido_ids = _ids_estables(surtido.id, surtido.lineas)
-            for linea, linea_id in zip(surtido.lineas, linea_surtido_ids):
+            for linea, linea_id in zip(surtido.lineas, linea_surtido_ids, strict=False):
                 linea_surtido_model = LineaSurtidoModel(
                     id=linea_id,
                     surtido_id=surtido.id,
@@ -654,7 +654,7 @@ class SqlAlchemyRepositorioSurtido(RepositorioSurtido):
 
         # === Líneas de surtido con IDs estables ===
         linea_ids = _ids_estables(surtido.id, surtido.lineas)
-        for linea, linea_id in zip(surtido.lineas, linea_ids):
+        for linea, linea_id in zip(surtido.lineas, linea_ids, strict=False):
             linea_model = LineaSurtidoModel(
                 id=linea_id,
                 surtido_id=surtido.id,

@@ -177,7 +177,7 @@ class ReservaExpiradaService:
 
     def liberar_reservas_expiradas(self, almacenes: List[Almacen]) -> None:
         """Recorre almacenes y libera reservas > 15 min."""
-        ahora = self._reloj.ahora()
+        ahora = self._reloj.ahora()  # noqa: F841  # Placeholder: se usará cuando existencias tengan timestamp de reserva
         # En la implementación real, ExistenciaProducto guardaría timestamp de reserva
         # Aquí es un placeholder - la lógica real está en ExistenciaProducto
         pass

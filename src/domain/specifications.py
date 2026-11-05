@@ -139,7 +139,7 @@ class PedidoConStockSuficienteSpec(Specification[Pedido]):
     """
     def is_satisfied_by(self, pedido: Pedido) -> bool:
         for surtido in pedido.surtidos:
-            for linea in surtido.lineas:
+            for _linea in surtido.lineas:
                 # La verificación real se hace en Almacen al reservar
                 pass
         return True  # Placeholder: la verificación real es en Almacen.reservar()

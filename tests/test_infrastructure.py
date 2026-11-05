@@ -558,7 +558,7 @@ def test_repositorio_pedido_persistencia_surtidos_2_almacenes(session):
     surtidos_original = sorted(pedido.surtidos, key=lambda s: s.id)
     surtidos_recargados = sorted(obtenido.surtidos, key=lambda s: s.id)
 
-    for orig, recargado in zip(surtidos_original, surtidos_recargados):
+    for orig, recargado in zip(surtidos_original, surtidos_recargados, strict=False):
         assert orig.id == recargado.id, f"ID de surtido no coincide: {orig.id} vs {recargado.id}"
         assert orig.almacen_id == recargado.almacen_id, "Almacen_id no coincide"
         assert orig.estado == recargado.estado, f"Estado no coincide: {orig.estado} vs {recargado.estado}"

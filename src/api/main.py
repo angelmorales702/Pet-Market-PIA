@@ -15,9 +15,9 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import Body, Depends, FastAPI, Header, HTTPException, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, Field, ValidationError, field_validator
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -29,9 +29,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-from src.application.in_memory import InMemoryEventPublisher
-from src.application.ports import PasarelaPago, PublicadorEventos, ResultadoPago
-from src.application.use_cases import (
+# Imports de domain/application después de logging configurado (necesario para evitar ciclos)
+# pylint: disable=import-outside-toplevel  # noqa: E402
+from src.application.in_memory import InMemoryEventPublisher  # noqa: E402
+from src.application.ports import PasarelaPago, PublicadorEventos, ResultadoPago  # noqa: E402
+from src.application.use_cases import (  # noqa: E402
     AutorizarDevolucionUseCase,
     CancelarPedidoUseCase,
     ConfirmarCheckoutUseCase,
@@ -43,10 +45,10 @@ from src.application.use_cases import (
     ProcesarReembolsoUseCase,
     RegistrarEntregaUseCase,
     SolicitarDevolucionUseCase,
-)
-from src.domain.aggregates import Almacen, Devolucion, Envio, Pago, Pedido, Producto
-from src.domain.entities import LineaDevolucion, LineaPedido
-from src.domain.exceptions import (
+)  # noqa: E402
+from src.domain.aggregates import Almacen, Devolucion, Envio, Pago, Pedido, Producto  # noqa: E402
+from src.domain.entities import LineaDevolucion, LineaPedido  # noqa: E402
+from src.domain.exceptions import (  # noqa: E402
     AlmacenNoEncontradoError,
     CancelacionNoPermitidaError,
     DevolucionNoEncontradoError,
@@ -57,8 +59,8 @@ from src.domain.exceptions import (
     SurtidoNoEncontradoError,
     TransicionEstadoInvalidaException,
 )
-from src.domain.value_objects import Dinero, DireccionEntrega, MotivoDevolucion, Sku
-from src.infrastructure.persistence.uow import SqlAlchemyUnitOfWork
+from src.domain.value_objects import Dinero, DireccionEntrega, MotivoDevolucion, Sku  # noqa: E402
+from src.infrastructure.persistence.uow import SqlAlchemyUnitOfWork  # noqa: E402
 
 # Database configuration
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://petmarket_user:petmarket_pass@localhost:5432/petmarket_db")
@@ -253,7 +255,7 @@ async def handle_validation_error(request, exc: ValidationError):
     errors = exc.errors()
     if errors:
         first_error = errors[0]
-        loc = ".".join(str(l) for l in first_error.get("loc", []))
+        loc = ".".join(str(loc_part) for loc_part in first_error.get("loc", []))
         msg = first_error.get("msg", "Error de validación")
         error_type = first_error.get("type", "value_error")
 
@@ -281,9 +283,8 @@ async def handle_request_validation_error(request, exc: RequestValidationError):
     errors = exc.errors()
     if errors:
         first_error = errors[0]
-        loc = ".".join(str(l) for l in first_error.get("loc", []))
+        loc = ".".join(str(loc_part) for loc_part in first_error.get("loc", []))
         msg = first_error.get("msg", "Error de validación")
-        error_type = first_error.get("type", "value_error")
 
         # Mapear tipos de error a códigos más específicos
         if "sku" in loc.lower():
@@ -466,21 +467,21 @@ class PedidoResponse(BaseModel):
             },
             lineas=[
                 LineaPedidoResponse(
-                    sku=str(l.sku),
-                    cantidad=l.cantidad,
-                    precio_unitario=l.precio_unitario.monto,
+                    sku=str(linea.sku),
+                    cantidad=linea.cantidad,
+                    precio_unitario=linea.precio_unitario.monto,
                 )
-                for l in pedido.lineas
+                for linea in pedido.lineas
             ],
             surtidos=[
                 {
-                    "id": str(s.id),
-                    "pedido_id": str(s.pedido_id),
-                    "almacen_id": str(s.almacen_id),
-                    "estado": s.estado.value,
-                    "lineas": [{"sku": str(l.sku), "cantidad": l.cantidad} for l in s.lineas],
+                    "id": str(surtido.id),
+                    "pedido_id": str(surtido.pedido_id),
+                    "almacen_id": str(surtido.almacen_id),
+                    "estado": surtido.estado.value,
+                    "lineas": [{"sku": str(linea.sku), "cantidad": linea.cantidad} for linea in surtido.lineas],
                 }
-                for s in pedido.surtidos
+                for surtido in pedido.surtidos
             ],
             reintentos_pago=pedido.reintentos_pago,
         )
@@ -584,8 +585,8 @@ class DevolucionResponse(BaseModel):
             estado=devolucion.estado.value,
             motivo=devolucion.motivo.valor,
             lineas=[
-                {"sku": str(l.sku), "cantidad": l.cantidad}
-                for l in devolucion.lineas
+                {"sku": str(linea.sku), "cantidad": linea.cantidad}
+                for linea in devolucion.lineas
             ],
             fecha_solicitud=devolucion.fecha_solicitud,
         )
@@ -930,12 +931,12 @@ async def listar_pedidos_cliente(
                 "moneda": pedido.total.moneda,
                 "surtidos": [
                     {
-                        "surtido_id": str(s.id),
-                        "almacen_id": str(s.almacen_id),
-                        "estado": s.estado.value,
-                        "lineas": [{"sku": str(l.sku), "cantidad": l.cantidad} for l in s.lineas],
+                        "surtido_id": str(surtido.id),
+                        "almacen_id": str(surtido.almacen_id),
+                        "estado": surtido.estado.value,
+                        "lineas": [{"sku": str(linea.sku), "cantidad": linea.cantidad} for linea in surtido.lineas],
                     }
-                    for s in pedido.surtidos
+                    for surtido in pedido.surtidos
                 ],
             }
             resultados.append(item)

@@ -1052,7 +1052,7 @@ class TestRegresiones:
         # Obtener estado inicial
         antes = client.get(f"/pedidos/{pid}")
         assert antes.status_code == 200
-        antes_json = antes.json()
+        antes.json()
 
         # Cancelar el pedido
         cancelar = client.post(

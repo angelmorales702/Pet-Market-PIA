@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
-import pytest
 
 from src.domain.aggregates import Almacen, Pedido
 from src.domain.entities import LineaPedido
@@ -98,7 +97,7 @@ def test_asignacion_almacen_sin_almacenes() -> None:
 
     try:
         service.asignar(pedido, [])
-        assert False, "Debería haber lanzado ValueError"
+        raise AssertionError("Debería haber lanzado ValueError")
     except ValueError:
         pass
 

@@ -152,7 +152,7 @@ class Pedido(AggregateRoot):
         ))
         # Confirmar reservas en almacenes (descuenta stock real)
         for surtido in self.surtidos:
-            for linea in surtido.lineas:
+            for _linea in surtido.lineas:
                 # Se haría via Almacen en la capa de aplicación
                 pass
 

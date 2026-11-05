@@ -61,7 +61,7 @@ class ConfirmarCheckoutUseCase:
                 from src.domain.exceptions import StockInsuficienteError
                 # Encontrar el SKU con stock insuficiente
                 sku_str = str(pedido.lineas[0].sku)
-                solicitud = sum(l.cantidad for l in pedido.lineas)
+                solicitud = sum(linea.cantidad for linea in pedido.lineas)
                 disponible = 0
                 for almacen in almacenes:
                     ex = almacen.obtener_existencia(pedido.lineas[0].sku)
@@ -312,7 +312,7 @@ class RegistrarEntregaUseCase:
             if not envio:
                 envio = Envio.crear(pedido_id=pedido.id)
 
-            intento = envio.registrar_intento(exitoso=exitoso, observaciones=observaciones)
+            envio.registrar_intento(exitoso=exitoso, observaciones=observaciones)
 
             if exitoso:
                 pedido.registrar_intento_entrega(exitoso=True, observaciones=observaciones)
@@ -352,7 +352,7 @@ class SolicitarDevolucionUseCase:
             if not devolucion.esta_dentro_ventana(fecha_entrega, calendario=self._calendario, reloj=self._reloj):
                 raise DevolucionNoPermitidaError("Fuera de la ventana de 5 días hábiles")
 
-            pedido_devolucion_id = pedido.solicitar_devolucion(motivo)
+            pedido.solicitar_devolucion(motivo)
 
             uow.pedidos.guardar(pedido)
             uow.devoluciones.guardar(devolucion)
@@ -460,12 +460,12 @@ class ConsultarEstadoPedidoUseCase:
                 },
                 "surtidos": [
                     {
-                        "surtido_id": str(s.id),
-                        "almacen_id": str(s.almacen_id),
-                        "estado": s.estado.value,
-                        "lineas": [{"sku": str(l.sku), "cantidad": l.cantidad} for l in s.lineas],
+                        "surtido_id": str(surtido.id),
+                        "almacen_id": str(surtido.almacen_id),
+                        "estado": surtido.estado.value,
+                        "lineas": [{"sku": str(linea.sku), "cantidad": linea.cantidad} for linea in surtido.lineas],
                     }
-                    for s in pedido.surtidos
+                    for surtido in pedido.surtidos
                 ],
                 "envio_estado": envio.estado.value if envio else "SIN_ENVIO",
                 "pago_estado": pago.estado.value if pago else "SIN_PAGO",

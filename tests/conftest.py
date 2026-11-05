@@ -404,7 +404,7 @@ def pedido_pagado(session, pedido_pendiente_pago, almacen_norte):
     pasarela = FakePasarelaPago()
     use_case = ProcesarPagoUseCase(uow, publisher, pasarela)
 
-    pago = use_case.ejecutar(
+    use_case.ejecutar(
         pedido_id=pedido_pendiente_pago.id,
         metodo_pago="TARJETA",
         datos_cliente={}
@@ -517,7 +517,7 @@ def pedido_enviado(session, pedido_empacado):
     uow = SqlAlchemyUnitOfWork(sessionmaker(bind=session.bind), publisher, existing_session=session)
     use_case = DespacharPedidoUseCase(uow, publisher)
 
-    envio = use_case.ejecutar(pedido_empacado.id, "GUIA-ENVIO-00001")
+    use_case.ejecutar(pedido_empacado.id, "GUIA-ENVIO-00001")
     session.commit()
 
     # Recargar explícitamente con los surtidos
@@ -551,7 +551,7 @@ def pedido_entregado(session, pedido_enviado):
     uow = SqlAlchemyUnitOfWork(sessionmaker(bind=session.bind), publisher, existing_session=session)
     use_case = RegistrarEntregaUseCase(uow, publisher)
 
-    envio = use_case.ejecutar(pedido_enviado.id, exitoso=True, observaciones="Entregado en puerta")
+    use_case.ejecutar(pedido_enviado.id, exitoso=True, observaciones="Entregado en puerta")
     session.commit()
 
     # Recargar explícitamente con los surtidos

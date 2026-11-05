@@ -161,7 +161,7 @@ def test_pedido_reintentos_pago_tres_veces() -> None:
     direccion = DireccionEntrega("Calle", "1", "Col", "Ciudad", "64000")
     linea = LineaPedido(Sku.of("SKU-00002"), 1, Dinero(100, "MXN"))
     pedido = Pedido.crear(uuid4(), [linea], direccion)
-    monto = Dinero(100, "MXN")
+    Dinero(100, "MXN")
 
     pedido.marcar_pago_rechazado("Tarjeta rechazada")
     pedido.marcar_pago_rechazado("Tarjeta rechazada")

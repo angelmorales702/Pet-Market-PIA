@@ -49,6 +49,7 @@ jobs:
       - name: Run Pytest with Coverage Gate (≥80%)
         env:
           DATABASE_URL: postgresql://petmarket_user:petmarket_pass@localhost:5432/petmarket_db
+          REQUIRE_DB: "1"
         run: |
           pytest --cov=src --cov-fail-under=80 --cov-report=term-missing
 

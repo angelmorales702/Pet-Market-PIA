@@ -1,0 +1,1323 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "PetMarket API",
+    "description": "API REST para el sistema de e-commerce de productos de mascotas",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Health Check",
+        "description": "Health check endpoint - verifies database connectivity.",
+        "operationId": "health_check_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/productos": {
+      "get": {
+        "summary": "Listar Productos",
+        "description": "US-001: Listar productos del catálogo.",
+        "operationId": "listar_productos_productos_get",
+        "parameters": [
+          {
+            "name": "activos",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": true,
+              "title": "Activos"
+            }
+          },
+          {
+            "name": "categoria",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Categoria"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListaProductosResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/productos/{sku}": {
+      "get": {
+        "summary": "Obtener Producto",
+        "description": "US-001: Obtener detalles de un producto por SKU.",
+        "operationId": "obtener_producto_productos__sku__get",
+        "parameters": [
+          {
+            "name": "sku",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Sku"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/almacenes": {
+      "get": {
+        "summary": "Listar Almacenes",
+        "description": "Listar almacenes disponibles.",
+        "operationId": "listar_almacenes_almacenes_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/almacenes/{almacen_id}/inventario": {
+      "get": {
+        "summary": "Obtener Inventario Almacen",
+        "description": "US-001: Consultar inventario de un almacén.",
+        "operationId": "obtener_inventario_almacen_almacenes__almacen_id__inventario_get",
+        "parameters": [
+          {
+            "name": "almacen_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Almacen Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/pedidos": {
+      "post": {
+        "summary": "Crear Pedido",
+        "description": "US-004: Confirmar checkout y crear pedido.\n\nEl precio se obtiene del catálogo (producto por SKU), NO del cliente.\nEl total del pedido = sum(precio_producto * cantidad_cada_linea).",
+        "operationId": "crear_pedido_pedidos_post",
+        "parameters": [
+          {
+            "name": "X-Cliente-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Cliente-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PedidoCreado"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PedidoResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/pagos": {
+      "post": {
+        "summary": "Procesar Pago",
+        "description": "US-003, US-004: Procesar pago de un pedido.",
+        "operationId": "procesar_pago_pagos_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PagoProcesar"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PagoResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/pedidos/{pedido_id}/cancelar": {
+      "post": {
+        "summary": "Cancelar Pedido",
+        "description": "US-008, US-009: Cancelar un pedido.",
+        "operationId": "cancelar_pedido_pedidos__pedido_id__cancelar_post",
+        "parameters": [
+          {
+            "name": "pedido_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Pedido Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MotivoCancelacion"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/pedidos/{pedido_id}/iniciar-preparacion": {
+      "post": {
+        "summary": "Iniciar Preparacion",
+        "description": "US-007: Iniciar preparación de un pedido.",
+        "operationId": "iniciar_preparacion_pedidos__pedido_id__iniciar_preparacion_post",
+        "parameters": [
+          {
+            "name": "pedido_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Pedido Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/pedidos/{pedido_id}/confirmar-empaque": {
+      "post": {
+        "summary": "Confirmar Empaque",
+        "description": "US-007: Confirmar empaquetado de un surtido.",
+        "operationId": "confirmar_empaque_pedidos__pedido_id__confirmar_empaque_post",
+        "parameters": [
+          {
+            "name": "pedido_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Pedido Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_confirmar_empaque_pedidos__pedido_id__confirmar_empaque_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/pedidos/{pedido_id}/enviar": {
+      "post": {
+        "summary": "Despachar Pedido",
+        "description": "US-006: Despachar el pedido generando el Envío y la Guía.",
+        "operationId": "despachar_pedido_pedidos__pedido_id__enviar_post",
+        "parameters": [
+          {
+            "name": "pedido_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Pedido Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DespachoDatos"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/pedidos/{pedido_id}/entrega": {
+      "post": {
+        "summary": "Registrar Entrega",
+        "description": "US-010, US-011: Registrar intento de entrega.",
+        "operationId": "registrar_entrega_pedidos__pedido_id__entrega_post",
+        "parameters": [
+          {
+            "name": "pedido_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Pedido Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntregaRegistro"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/pedidos/{pedido_id}": {
+      "get": {
+        "summary": "Consultar Pedido",
+        "description": "Consultar el estado de un pedido y sus surtidos/envíos.",
+        "operationId": "consultar_pedido_pedidos__pedido_id__get",
+        "parameters": [
+          {
+            "name": "pedido_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Pedido Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/clientes/{cliente_id}/pedidos": {
+      "get": {
+        "summary": "Listar Pedidos Cliente",
+        "description": "US-012: Listar pedidos de un cliente con estado de surtidos.",
+        "operationId": "listar_pedidos_cliente_clientes__cliente_id__pedidos_get",
+        "parameters": [
+          {
+            "name": "cliente_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Cliente Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/devoluciones": {
+      "post": {
+        "summary": "Solicitar Devolucion",
+        "description": "US-013, US-014: Solicitar una devolución.",
+        "operationId": "solicitar_devolucion_devoluciones_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DevolucionSolicitar"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/devoluciones/{devolucion_id}/autorizar": {
+      "post": {
+        "summary": "Autorizar Devolucion",
+        "description": "US-014: Autorizar una devolución.",
+        "operationId": "autorizar_devolucion_devoluciones__devolucion_id__autorizar_post",
+        "parameters": [
+          {
+            "name": "devolucion_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Devolucion Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/devoluciones/{devolucion_id}/rechazar": {
+      "post": {
+        "summary": "Rechazar Devolucion",
+        "description": "Rechazar una devolución.",
+        "operationId": "rechazar_devolucion_devoluciones__devolucion_id__rechazar_post",
+        "parameters": [
+          {
+            "name": "devolucion_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Devolucion Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MotivoRechazoDevolucion"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/devoluciones/{devolucion_id}/confirmar-recepcion": {
+      "post": {
+        "summary": "Confirmar Recepcion",
+        "description": "US-014: Confirmar recepción en almacén.",
+        "operationId": "confirmar_recepcion_devoluciones__devolucion_id__confirmar_recepcion_post",
+        "parameters": [
+          {
+            "name": "devolucion_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Devolucion Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/almacenes/{almacen_id}/discrepancia": {
+      "post": {
+        "summary": "Detectar Discrepancia",
+        "description": "US-016: Detectar discrepancia entre inventario web y físico.",
+        "operationId": "detectar_discrepancia_almacenes__almacen_id__discrepancia_post",
+        "parameters": [
+          {
+            "name": "almacen_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Almacen Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DiscrepanciaInventario"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Body_confirmar_empaque_pedidos__pedido_id__confirmar_empaque_post": {
+        "properties": {
+          "almacen_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Almacen Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "almacen_id"
+        ],
+        "title": "Body_confirmar_empaque_pedidos__pedido_id__confirmar_empaque_post"
+      },
+      "DespachoDatos": {
+        "properties": {
+          "guia": {
+            "type": "string",
+            "title": "Guia"
+          }
+        },
+        "type": "object",
+        "required": [
+          "guia"
+        ],
+        "title": "DespachoDatos"
+      },
+      "DevolucionSolicitar": {
+        "properties": {
+          "pedido_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Pedido Id"
+          },
+          "lineas": {
+            "items": {
+              "$ref": "#/components/schemas/LineaDevolucionRequest"
+            },
+            "type": "array",
+            "title": "Lineas"
+          },
+          "motivo": {
+            "type": "string",
+            "title": "Motivo"
+          },
+          "fecha_entrega": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fecha Entrega"
+          }
+        },
+        "type": "object",
+        "required": [
+          "pedido_id",
+          "lineas",
+          "motivo"
+        ],
+        "title": "DevolucionSolicitar"
+      },
+      "DireccionRequest": {
+        "properties": {
+          "calle": {
+            "type": "string",
+            "title": "Calle"
+          },
+          "numero": {
+            "type": "string",
+            "title": "Numero"
+          },
+          "colonia": {
+            "type": "string",
+            "title": "Colonia"
+          },
+          "ciudad": {
+            "type": "string",
+            "title": "Ciudad"
+          },
+          "codigo_postal": {
+            "type": "string",
+            "maxLength": 5,
+            "minLength": 5,
+            "title": "Codigo Postal"
+          }
+        },
+        "type": "object",
+        "required": [
+          "calle",
+          "numero",
+          "colonia",
+          "ciudad",
+          "codigo_postal"
+        ],
+        "title": "DireccionRequest"
+      },
+      "DiscrepanciaInventario": {
+        "properties": {
+          "sku": {
+            "type": "string",
+            "title": "Sku"
+          },
+          "cantidad_fisica": {
+            "type": "integer",
+            "title": "Cantidad Fisica"
+          }
+        },
+        "type": "object",
+        "required": [
+          "sku",
+          "cantidad_fisica"
+        ],
+        "title": "DiscrepanciaInventario"
+      },
+      "EntregaRegistro": {
+        "properties": {
+          "exitoso": {
+            "type": "boolean",
+            "title": "Exitoso"
+          },
+          "observaciones": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observaciones"
+          }
+        },
+        "type": "object",
+        "required": [
+          "exitoso"
+        ],
+        "title": "EntregaRegistro"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "LineaDevolucionRequest": {
+        "properties": {
+          "sku": {
+            "type": "string",
+            "title": "Sku"
+          },
+          "cantidad": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Cantidad"
+          }
+        },
+        "type": "object",
+        "required": [
+          "sku",
+          "cantidad"
+        ],
+        "title": "LineaDevolucionRequest"
+      },
+      "LineaPedidoRequest": {
+        "properties": {
+          "sku": {
+            "type": "string",
+            "title": "Sku"
+          },
+          "cantidad": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Cantidad",
+            "description": "Cantidad de unidades a pedir"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "sku",
+          "cantidad"
+        ],
+        "title": "LineaPedidoRequest",
+        "description": "Request for a line item in a pedido.\n\nEl precio_unitario NO se acepta del cliente: proviene del catálogo de productos."
+      },
+      "LineaPedidoResponse": {
+        "properties": {
+          "sku": {
+            "type": "string",
+            "title": "Sku"
+          },
+          "cantidad": {
+            "type": "integer",
+            "title": "Cantidad"
+          },
+          "precio_unitario": {
+            "type": "string",
+            "title": "Precio Unitario"
+          }
+        },
+        "type": "object",
+        "required": [
+          "sku",
+          "cantidad",
+          "precio_unitario"
+        ],
+        "title": "LineaPedidoResponse"
+      },
+      "ListaProductosResponse": {
+        "properties": {
+          "productos": {
+            "items": {
+              "$ref": "#/components/schemas/ProductoSchema"
+            },
+            "type": "array",
+            "title": "Productos"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          }
+        },
+        "type": "object",
+        "required": [
+          "productos",
+          "total"
+        ],
+        "title": "ListaProductosResponse"
+      },
+      "MotivoCancelacion": {
+        "properties": {
+          "motivo": {
+            "type": "string",
+            "title": "Motivo"
+          },
+          "autorizado_por_atencion": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Autorizado Por Atencion",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "motivo"
+        ],
+        "title": "MotivoCancelacion"
+      },
+      "MotivoRechazoDevolucion": {
+        "properties": {
+          "motivo": {
+            "type": "string",
+            "title": "Motivo"
+          }
+        },
+        "type": "object",
+        "required": [
+          "motivo"
+        ],
+        "title": "MotivoRechazoDevolucion"
+      },
+      "PagoProcesar": {
+        "properties": {
+          "pedido_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Pedido Id"
+          },
+          "metodo_pago": {
+            "type": "string",
+            "title": "Metodo Pago",
+            "description": "Método de pago: TARJETA, TRANSFERENCIA, EFECTIVO"
+          },
+          "datos_cliente": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Datos Cliente"
+          }
+        },
+        "type": "object",
+        "required": [
+          "pedido_id",
+          "metodo_pago"
+        ],
+        "title": "PagoProcesar"
+      },
+      "PagoResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "pedido_id": {
+            "type": "string",
+            "title": "Pedido Id"
+          },
+          "monto": {
+            "type": "string",
+            "title": "Monto"
+          },
+          "moneda": {
+            "type": "string",
+            "title": "Moneda"
+          },
+          "metodo_pago": {
+            "type": "string",
+            "title": "Metodo Pago"
+          },
+          "estado": {
+            "type": "string",
+            "title": "Estado"
+          },
+          "reintentos": {
+            "type": "integer",
+            "title": "Reintentos"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "pedido_id",
+          "monto",
+          "moneda",
+          "metodo_pago",
+          "estado",
+          "reintentos"
+        ],
+        "title": "PagoResponse"
+      },
+      "PedidoCreado": {
+        "properties": {
+          "lineas": {
+            "items": {
+              "$ref": "#/components/schemas/LineaPedidoRequest"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Lineas",
+            "description": "Al menos una línea requerida"
+          },
+          "direccion": {
+            "$ref": "#/components/schemas/DireccionRequest"
+          }
+        },
+        "type": "object",
+        "required": [
+          "lineas",
+          "direccion"
+        ],
+        "title": "PedidoCreado",
+        "description": "Request body para crear un pedido.\n\n- lineas: requiere al menos 1 elemento (validación Pydantic)\n- precio_unitario en cada línea es RECHAZADO (se busca en el catálogo)"
+      },
+      "PedidoResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "cliente_id": {
+            "type": "string",
+            "title": "Cliente Id"
+          },
+          "estado": {
+            "type": "string",
+            "title": "Estado"
+          },
+          "total": {
+            "type": "string",
+            "title": "Total"
+          },
+          "moneda": {
+            "type": "string",
+            "title": "Moneda"
+          },
+          "direccion_entrega": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Direccion Entrega"
+          },
+          "lineas": {
+            "items": {
+              "$ref": "#/components/schemas/LineaPedidoResponse"
+            },
+            "type": "array",
+            "title": "Lineas"
+          },
+          "surtidos": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Surtidos"
+          },
+          "reintentos_pago": {
+            "type": "integer",
+            "title": "Reintentos Pago"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "cliente_id",
+          "estado",
+          "total",
+          "moneda",
+          "direccion_entrega",
+          "lineas",
+          "surtidos",
+          "reintentos_pago"
+        ],
+        "title": "PedidoResponse"
+      },
+      "ProductoSchema": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "sku": {
+            "type": "string",
+            "title": "Sku"
+          },
+          "nombre": {
+            "type": "string",
+            "title": "Nombre"
+          },
+          "descripcion": {
+            "type": "string",
+            "title": "Descripcion"
+          },
+          "precio": {
+            "type": "string",
+            "title": "Precio"
+          },
+          "moneda": {
+            "type": "string",
+            "title": "Moneda"
+          },
+          "categoria": {
+            "type": "string",
+            "title": "Categoria"
+          },
+          "activo": {
+            "type": "boolean",
+            "title": "Activo"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "sku",
+          "nombre",
+          "descripcion",
+          "precio",
+          "moneda",
+          "categoria",
+          "activo"
+        ],
+        "title": "ProductoSchema"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}

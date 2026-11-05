@@ -16,6 +16,25 @@ jobs:
           POSTGRES_USER: petmarket_user
           POSTGRES_PASSWORD: petmarket_pass
           POSTGRES_DB: petmarket_db
+          POSTGRES_TEST_DB: petmarket_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: petmarket_user
+          POSTGRES_PASSWORD: petmarket_pass
+          POSTGRES_DB: petmarket_db
         ports:
           - 5432:5432
         options: >-
@@ -39,11 +58,13 @@ jobs:
 
       - name: Run Ruff Linter
         run: |
-          ruff check .
+          ruff check . --fix
 
       - name: Run Pytest with Coverage Gate (≥80%)
         env:
           DATABASE_URL: postgresql://petmarket_user:petmarket_pass@localhost:5432/petmarket_db
+          TEST_DATABASE_URL: postgresql://petmarket_user:petmarket_pass@localhost:5432/petmarket_test
+          REQUIRE_DB: "1"
         run: |
           pytest --cov=src --cov-fail-under=80 --cov-report=term-missing
 
@@ -63,3 +84,5 @@ jobs:
           file: ./Dockerfile
           push: false
           tags: petmarket-app:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

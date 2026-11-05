@@ -1,0 +1,25 @@
+# Render Blueprint para PetMarket Backend
+# Para más información: https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: petmarket-api
+    env: docker
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: PORT
+        value: 8000
+      - key: DATABASE_URL
+        sync: false
+        description: PostgreSQL connection string (se configura con la base de datos administrada)
+    # Nota: DATABASE_URL se configura automáticamente al conectar con la base de datos
+    # Ver: https://render.com/docs/database-url
+
+databases:
+  - name: petmarket-db
+    plan: starter
+    # Nota: Los límites del plan gratuito pueden cambiar
+    # Ver documentación actualizada de Render antes de desplegar

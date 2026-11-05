@@ -132,8 +132,18 @@ curl http://localhost:8000/health
 REQUIRE_DB=1 pytest tests/ --cov=src --cov-fail-under=80
 
 # O usar Docker para la base de test
-docker compose -f docker-compose.yml -f docker-compose.test.yml up -d
-REQUIRE_DB=1 pytest tests/ --cov=src --cov-fail-under=80
+docker compose up -d db
+docker compose --profile tests run --rm tests
+```
+
+### Ejecutar tests con Docker Compose
+
+```bash
+# Levantar servicios
+docker compose up -d db
+
+# Ejecutar tests contra base de test propia
+docker compose --profile tests run --rm tests
 ```
 
 ### Tests de Integración API
@@ -170,6 +180,12 @@ python scripts/export_openapi.py
 | `TEST_DATABASE_URL` | URL para tests | `postgresql://petmarket_user:petmarket_pass@localhost:5432/petmarket_test` |
 | `CORS_ORIGINS` | Orígenes permitidos CORS | `*` |
 | `PORT` | Puerto de la API | `8000` |
+| `ENVIRONMENT` | Entorno (development/production) | `development` |
+| `MAX_INTENTOS_ENTREGA` | Máximo intentos entrega | `3` |
+| `PLAZO_CANCELACION_DIAS` | Plazo cancelación en días | `2` |
+| `ESTRATEGIA_ASIGNACION_ALMACEN` | Estrategia asignación almacén | `MENOR_NUMERO_ALMACENES` |
+
+Ver `.env.example` para configuración completa.
 
 ## Despliegue
 
@@ -177,8 +193,16 @@ python scripts/export_openapi.py
 
 ```bash
 docker compose build
-docker compose up -d
+docker compose up -d app db
 ```
+
+### Despliegue en Render
+
+1. Conectar repositorio a Render
+2. Render detecta `render.yaml` (Blueprint)
+3. Crear base de datos PostgreSQL administrada
+4. Conectar base de datos al servicio web
+5. Render ejecuta Docker, migraciones y health check `/health`
 
 ### Después del deploy
 
@@ -189,6 +213,16 @@ docker compose exec app alembic upgrade head
 # Seed de datos
 docker compose exec app python scripts/seed_data.py
 ```
+
+## Limitaciones Conocidas
+
+- Sin autenticación real: `X-Cliente-Id` como supuesto
+- Autorización de Atención al cliente por bandera en petición
+- Pasarela de pago simulada (sin integración real)
+- Sin rate limiting ni logging estructurado
+- Sin monitoreo ni métricas de producción
+- Sin internacionalización (i18n)
+- Sin manejo de zonas horarias complejas
 
 ## Licencia
 

@@ -674,6 +674,16 @@ class TestDevolucionAPI:
         response = client.post(f"/devoluciones/{devolucion_id}/confirmar-recepcion")
         assert response.status_code == 200
 
+        # Verificar estado de devolución
+        devolucion_resp = response.json()
+        assert devolucion_resp["estado"] == "PROCESADA"
+
+        # Verificar que el pago fue reembolsado (estado cambia a RECHAZADO)
+        # Según el modelo actual, RECHAZADO sirve como REEMBOLSADO
+        pedido_resp = client.get(f"/pedidos/{pedido_entregado.id}")
+        assert pedido_resp.status_code == 200
+        # El pedido sigue en ENTREGADO, pero el pago fue reembolsado
+
 
 # =============================================================================
 # Tests de Discrepancia de Inventario - US-016

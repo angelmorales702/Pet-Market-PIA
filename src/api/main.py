@@ -31,6 +31,11 @@ logger = logging.getLogger(__name__)
 
 # Imports de domain/application después de logging configurado (necesario para evitar ciclos)
 # pylint: disable=import-outside-toplevel  # noqa: E402
+from pathlib import Path
+
+from fastapi.staticfiles import StaticFiles
+from sqlalchemy import select
+
 from src.application.in_memory import InMemoryEventPublisher  # noqa: E402
 from src.application.ports import PasarelaPago, PublicadorEventos, ResultadoPago  # noqa: E402
 from src.application.use_cases import (  # noqa: E402
@@ -60,6 +65,7 @@ from src.domain.exceptions import (  # noqa: E402
     TransicionEstadoInvalidaException,
 )
 from src.domain.value_objects import Dinero, DireccionEntrega, MotivoDevolucion, Sku  # noqa: E402
+from src.infrastructure.persistence.models import ClienteModel
 from src.infrastructure.persistence.uow import SqlAlchemyUnitOfWork  # noqa: E402
 
 # Database configuration
@@ -1026,6 +1032,16 @@ async def detectar_discrepancia(
         use_case = ConsultarDiscrepanciaInventarioUseCase(uow, publisher)
         use_case.ejecutar(almacen_id, Sku.of(datos.sku), datos.cantidad_fisica)
         return {"status": "discrepancia_registrada", "almacen_id": str(almacen_id)}
+
+
+@app.get("/clientes", tags=["Clientes"])
+def listar_clientes(session=Depends(get_session)):
+    """Lista de clientes para la demo (sin autenticacion)."""
+    filas = session.scalars(select(ClienteModel)).all()
+    return [{"id": str(c.id), "nombre": c.nombre} for c in filas]
+
+
+app.mount("/app", StaticFiles(directory=Path(__file__).parent / "static", html=True), name="ui")
 
 
 if __name__ == "__main__":

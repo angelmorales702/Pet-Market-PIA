@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PetMarket</title>
+<!--
+MONTAJE (misma URL que la API, sin CORS):
+1) Guardar como src/api/static/index.html
+2) En src/api/main.py, DESPUÉS de definir las rutas:
+     from pathlib import Path
+     from fastapi.staticfiles import StaticFiles
+     app.mount("/app", StaticFiles(directory=Path(__file__).parent / "static", html=True), name="ui")
+3) Abrir https://TU-URL/app/   (otra API: /app/?api=https://otra-url)
+SUPUESTOS: GET /clientes es opcional (si no existe, se escribe el ID del cliente a mano);
+los nombres de campos de productos e inventario se leen de forma tolerante.
+-->
+<style>
+:root{--ink:#0e3b3f;--paper:#f2f6f4;--leaf:#2f9e6e;--sun:#ffc233;--berry:#c93c63;--line:#d5e0db;--mut:#5d7570}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.5 ui-rounded,"SF Pro Rounded","Nunito","Segoe UI",system-ui,sans-serif}
+header{background:var(--ink);color:#fff;padding:14px 20px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+header h1{margin:0;font-size:1.4rem;flex:1;letter-spacing:-.01em}
+header h1 b{color:var(--sun)}
+header select,header input{padding:9px 14px;border:0;border-radius:999px;font:inherit;font-size:.9rem;max-width:290px;min-width:0}
+nav{display:flex;gap:4px;padding:10px 20px;background:#fff;border-bottom:1px solid var(--line);overflow-x:auto}
+nav button{border:0;background:none;padding:9px 16px;border-radius:999px;font:inherit;font-weight:600;color:var(--mut);cursor:pointer;white-space:nowrap}
+nav button.on{background:var(--ink);color:#fff}
+:focus-visible{outline:3px solid var(--sun);outline-offset:2px}
+main{max-width:980px;margin:0 auto;padding:22px 20px 90px}
+section[hidden]{display:none}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px}
+.card{background:#fff;border:1.5px solid var(--line);border-radius:18px;padding:18px}
+.stack>.card{margin-bottom:14px}
+.card h3{margin:2px 0 4px;font-size:1.05rem}
+.mut{color:var(--mut);font-size:.88rem}
+.price{font-size:1.4rem;font-weight:800;margin:10px 0}
+.btn{border:0;background:var(--ink);color:#fff;padding:10px 18px;border-radius:999px;font:inherit;font-weight:700;font-size:.92rem;cursor:pointer}
+.btn.go{background:var(--sun);color:var(--ink)}
+.btn.alt{background:#fff;color:var(--ink);border:1.5px solid var(--line);padding:6px 12px}
+.btn.bad{background:#fff;color:var(--berry);border:1.5px solid var(--berry)}
+.row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line)}
+.row.end{border:0}
+.badge{padding:3px 12px;border-radius:999px;font-size:.8rem;font-weight:700;background:#e8eeeb}
+.s-PAGADO,.s-ENTREGADO{background:#d8f1e4;color:#176243}
+.s-PENDIENTE_PAGO,.s-CREADO{background:#fff0c7;color:#7a5600}
+.s-CANCELADO{background:#fde4ea;color:var(--berry)}
+.track{display:flex;margin:16px 0 8px}
+.track div{flex:1;text-align:center;font-size:.68rem;line-height:1.2;color:var(--mut);position:relative;padding-top:20px}
+.track div:before{content:"";position:absolute;top:4px;left:50%;width:12px;height:12px;margin-left:-6px;border-radius:50%;background:var(--line);z-index:1}
+.track div:after{content:"";position:absolute;top:9px;left:-50%;width:100%;height:3px;background:var(--line)}
+.track div:first-child:after{display:none}
+.track .done{color:var(--ink)}
+.track .done:before,.track .done:after{background:var(--leaf)}
+.track .now:before{background:var(--sun);box-shadow:0 0 0 5px #ffc23355}
+form.f{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+form.f input{padding:11px 12px;border:1.5px solid var(--line);border-radius:12px;font:inherit;width:100%}
+.full{grid-column:1/-1}
+table{width:100%;border-collapse:collapse;font-size:.92rem}
+th,td{text-align:left;padding:7px 4px;border-bottom:1px solid var(--line)}
+#toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:12px 20px;border-radius:14px;display:none;max-width:92%;z-index:9}
+#toast.err{background:var(--berry)}
+@media(max-width:560px){form.f{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Pet<b>Market</b></h1>
+  <select id="cli" hidden onchange="setCli(this.value)" aria-label="Cliente"></select>
+  <input id="cliTxt" placeholder="ID de cliente (UUID)" onchange="setCli(this.value)" aria-label="ID de cliente">
+</header>
+<nav>
+  <button data-t="tienda" onclick="tab('tienda')">Tienda</button>
+  <button data-t="carrito" onclick="tab('carrito')">Carrito (<span id="nc">0</span>)</button>
+  <button data-t="pedidos" onclick="tab('pedidos')">Mis pedidos</button>
+  <button data-t="inv" onclick="tab('inv')">Inventario</button>
+</nav>
+<main>
+  <section id="tienda"><div class="grid" id="prods"></div></section>
+  <section id="carrito" class="stack" hidden>
+    <div class="card"><div id="items"></div><div class="row end"><b>Total estimado</b><b id="tot"></b></div></div>
+    <div class="card" id="ck" hidden>
+      <h3>Dirección de entrega</h3>
+      <form class="f" onsubmit="event.preventDefault();checkout()">
+        <input id="d1" class="full" placeholder="Calle" required>
+        <input id="d2" placeholder="Número" required>
+        <input id="d3" placeholder="Colonia" required>
+        <input id="d4" placeholder="Ciudad" required>
+        <input id="d5" placeholder="Código postal" inputmode="numeric" required>
+        <button class="btn go full">Confirmar pedido</button>
+      </form>
+      <p class="mut">Al confirmar, el stock queda apartado hasta que pagues.</p>
+    </div>
+  </section>
+  <section id="pedidos" class="stack" hidden><div id="ped"></div></section>
+  <section id="inv" class="stack" hidden>
+    <p class="mut">Stock por almacén. "Apartado" es lo reservado por pedidos que aún no se pagan.</p>
+    <div id="invc"></div>
+  </section>
+</main>
+<div id="toast" role="status"></div>
+<script>
+const $=s=>document.querySelector(s), API=new URLSearchParams(location.search).get('api')||'';
+const pick=(o,ks,d)=>{for(const k of ks)if(o&&o[k]!=null)return o[k];return d};
+const num=v=>v&&typeof v==='object'?Number(v.monto):Number(v);
+const money=n=>isNaN(n)?'—':n.toLocaleString('es-MX',{style:'currency',currency:'MXN'});
+const list=r=>Array.isArray(r)?r:(r&&(r.items||r.data||r.productos||r.pedidos||r.inventario||r.existencias))||[];
+const S={cli:localStorage.cli||'',prod:[],alm:{},cart:JSON.parse(localStorage.cart||'{}')};
+const FLOW=['CREADO','PENDIENTE_PAGO','PAGADO','EN_PREPARACION','EMPACADO','ENVIADO','ENTREGADO'];
+const CANCELABLE=['CREADO','PENDIENTE_PAGO','PAGADO','EN_PREPARACION','EMPACADO'];
+const name=s=>s.replace(/_/g,' ').toLowerCase();
+
+function toast(m,err){const t=$('#toast');t.textContent=m;t.className=err?'err':'';t.style.display='block';clearTimeout(toast.t);toast.t=setTimeout(()=>t.style.display='none',4500)}
+async function api(path,body){
+  const h={'Content-Type':'application/json'};if(S.cli)h['X-Cliente-Id']=S.cli;
+  const r=await fetch(API+path,{method:body?'POST':'GET',headers:h,body:body?JSON.stringify(body):undefined});
+  let d=null;try{d=await r.json()}catch(e){}
+  if(!r.ok){const x=d&&d.detail;throw new Error(typeof x==='string'?x:Array.isArray(x)?x.map(i=>i.msg).join('; '):(x&&x.mensaje)||'Error '+r.status)}
+  return d;
+}
+const run=async f=>{try{await f()}catch(e){toast(e.message,1)}};
+function setCli(v){S.cli=v.trim();localStorage.cli=S.cli;$('#cliTxt').value=S.cli;const on=document.querySelector('nav .on');if(on)tab(on.dataset.t)}
+function save(){localStorage.cart=JSON.stringify(S.cart)}
+function badge(){$('#nc').textContent=Object.values(S.cart).reduce((a,c)=>a+c.n,0)}
+function tab(n){
+  document.querySelectorAll('section').forEach(s=>s.hidden=s.id!==n);
+  document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.t===n));
+  run(()=>({tienda:loadTienda,carrito:drawCart,pedidos:loadPedidos,inv:loadInv})[n]());
+}
+
+async function loadTienda(){
+  if(!S.prod.length)S.prod=list(await api('/productos'));
+  $('#prods').innerHTML=S.prod.map(p=>{const sku=pick(p,['sku']);
+    return `<div class="card"><span class="mut">${sku}</span><h3>${pick(p,['nombre','name'],sku)}</h3><div class="mut">${pick(p,['descripcion'],'')}</div><div class="price">${money(num(pick(p,['precio','precio_unitario','price'])))}</div><button class="btn" onclick="add('${sku}')">Agregar al carrito</button></div>`}).join('')
+    ||'<p class="mut">No hay productos. Carga los datos semilla en la base.</p>';
+}
+function add(sku){
+  const p=S.prod.find(x=>pick(x,['sku'])===sku);
+  const c=S.cart[sku]||(S.cart[sku]={n:0,nombre:pick(p,['nombre','name'],sku),precio:num(pick(p,['precio','precio_unitario','price']))});
+  c.n++;save();badge();toast('Agregado: '+c.nombre);
+}
+function chg(sku,d){S.cart[sku].n+=d;if(S.cart[sku].n<=0)delete S.cart[sku];save();badge();drawCart()}
+function drawCart(){
+  const e=Object.entries(S.cart);let t=0;
+  $('#items').innerHTML=e.map(([sku,c])=>{t+=c.n*c.precio;
+    return `<div class="row"><div><b>${c.nombre}</b><div class="mut">${sku}</div></div><div><button class="btn alt" onclick="chg('${sku}',-1)" aria-label="Quitar uno">−</button> ${c.n} <button class="btn alt" onclick="chg('${sku}',1)" aria-label="Agregar uno">+</button></div><b>${money(c.n*c.precio)}</b></div>`}).join('')
+    ||'<p class="mut">Tu carrito está vacío. Elige productos en la tienda.</p>';
+  $('#tot').textContent=money(t);$('#ck').hidden=!e.length;
+}
+const val=id=>$('#'+id).value.trim();
+function checkout(){run(async()=>{
+  if(!S.cli)throw new Error('Elige o escribe tu ID de cliente arriba.');
+  await api('/pedidos',{lineas:Object.entries(S.cart).map(([sku,c])=>({sku,cantidad:c.n})),direccion:{calle:val('d1'),numero:val('d2'),colonia:val('d3'),ciudad:val('d4'),codigo_postal:val('d5')}});
+  S.cart={};save();badge();toast('Pedido creado. El stock quedó apartado: falta pagar.');tab('pedidos');
+})}
+
+async function loadPedidos(){
+  if(!S.cli){$('#ped').innerHTML='<p class="mut">Elige tu cliente arriba para ver tu historial.</p>';return}
+  if(!Object.keys(S.alm).length)for(const a of list(await api('/almacenes')))S.alm[a.id]=pick(a,['nombre','name'],'Almacén');
+  const ps=list(await api(`/clientes/${S.cli}/pedidos`));
+  $('#ped').innerHTML=ps.map(p=>{const est=p.estado,i=FLOW.indexOf(est);
+    return `<div class="card"><div class="row end"><b>Pedido ${p.id.slice(0,8)}</b><span class="badge s-${est}">${name(est)}</span></div>
+    ${est==='CANCELADO'?'':`<div class="track">${FLOW.map((f,k)=>`<div class="${k<=i?'done':''} ${k===i?'now':''}">${name(f)}</div>`).join('')}</div>`}
+    ${(p.lineas||[]).map(l=>`<div class="row"><span>${l.cantidad} × ${l.sku}</span><span>${money(num(l.precio_unitario)*l.cantidad)}</span></div>`).join('')}
+    ${(p.surtidos||[]).map(s=>`<div class="mut">Sale de ${S.alm[s.almacen_id]||'un almacén'}: ${name(s.estado)}</div>`).join('')}
+    <div class="row end"><b>Total ${money(num(p.total))}</b><span>${est==='PENDIENTE_PAGO'?`<button class="btn go" onclick="pagar('${p.id}')">Pagar</button> `:''}${CANCELABLE.includes(est)?`<button class="btn bad" onclick="cancelar('${p.id}')">Cancelar pedido</button>`:''}</span></div></div>`}).join('')
+    ||'<p class="mut">Todavía no tienes pedidos. Agrega productos desde la tienda.</p>';
+}
+const pagar=id=>run(async()=>{await api('/pagos',{pedido_id:id,metodo_pago:'tarjeta',datos_cliente:{}});toast('Pago aprobado: la venta quedó registrada.');await loadPedidos()});
+const cancelar=id=>run(async()=>{await api(`/pedidos/${id}/cancelar`,{motivo:'Cambio de opinión',autorizado_por_atencion:false});toast('Pedido cancelado y stock devuelto al almacén.');await loadPedidos()});
+
+async function loadInv(){
+  let h='';
+  for(const a of list(await api('/almacenes'))){
+    const rows=list(await api(`/almacenes/${a.id}/inventario`));
+    h+=`<div class="card"><h3>${pick(a,['nombre','name'],'Almacén')}</h3><table><tr><th>Producto</th><th>Disponible</th><th>Apartado</th></tr>${rows.map(r=>`<tr><td>${pick(r,['sku'],'')}</td><td>${pick(r,['cantidad_disponible','disponible'],'—')}</td><td>${pick(r,['cantidad_reservada','reservada','apartado'],'—')}</td></tr>`).join('')}</table></div>`;
+  }
+  $('#invc').innerHTML=h||'<p class="mut">No hay datos de inventario.</p>';
+}
+
+(async function init(){
+  badge();
+  try{const cs=list(await api('/clientes'));
+    if(cs.length){$('#cli').innerHTML=cs.map(c=>`<option value="${c.id}">${pick(c,['nombre','name'],c.id)}</option>`).join('');
+      $('#cli').hidden=false;$('#cliTxt').hidden=true;if(!cs.some(c=>c.id===S.cli))S.cli=cs[0].id;$('#cli').value=S.cli;localStorage.cli=S.cli}
+  }catch(e){}
+  $('#cliTxt').value=S.cli;tab('tienda');
+})();
+</script>
+</body>
+</html>
